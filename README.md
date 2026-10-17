@@ -3,17 +3,7 @@
 A Claude Code hook that shows you what a `terraform apply`, `kubectl delete` or `helm uninstall`
 will destroy before the agent runs it, and blocks it in production.
 
-```text
-$ blast-radius check terraform destroy -auto-approve
-blast-radius: terraform destroy -auto-approve
-   workspace prod · environment production · BLOCKED
-   5 to destroy
-     - destroy  terraform_data.database
-     - destroy  terraform_data.network
-     - destroy  terraform_data.web[0]
-     - destroy  terraform_data.web[1]
-     - destroy  terraform_data.web[2]
-```
+![blast-radius asking before a destroy in the default workspace and blocking it in prod](docs/demo.gif)
 
 The preview comes from the tool itself (`terraform plan`, `kubectl get`, `kubectl diff`), so you
 see the real list of resources instead of a guess based on the command text. Reads, plans and
