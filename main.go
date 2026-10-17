@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -17,7 +18,18 @@ import (
 	"github.com/sandeepkomal/blast-radius/internal/render"
 )
 
+// version is set by the release build. go install builds fall back to the
+// module version.
 var version = "dev"
+
+func versionString() string {
+	if version == "dev" {
+		if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+			return info.Main.Version
+		}
+	}
+	return version
+}
 
 const usage = `blast-radius shows what an infrastructure command would break before an AI agent runs it.
 
@@ -63,7 +75,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "config":
 		return printConfig(stdout, stderr)
 	case "version", "--version", "-v":
-		fmt.Fprintln(stdout, "blast-radius", version)
+		fmt.Fprintln(stdout, "blast-radius", versionString())
 		return 0
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)

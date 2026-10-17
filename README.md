@@ -22,9 +22,18 @@ buckets, volumes, PVCs and namespaces, are marked `(holds data)`.
 
 ## Install
 
+Download the archive for your platform from the
+[releases page](https://github.com/SandeepKomal/blast-radius/releases), put `blast-radius` on your
+`PATH`, then run:
+
+```bash
+blast-radius install
+```
+
+Or build it with Go 1.22 or later:
+
 ```bash
 go install github.com/sandeepkomal/blast-radius@latest
-blast-radius install
 ```
 
 `install` adds a PreToolUse hook for the Bash tool to `~/.claude/settings.json`. Restart Claude
