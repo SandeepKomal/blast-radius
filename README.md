@@ -127,8 +127,8 @@ Only commands the agent runs through the shell are checked. Changes made by a sc
 (`make deploy`, `./teardown.sh`), an SDK call or the cloud console are not seen, so keep using
 credentials scoped to what the agent needs.
 
-kubectl and Helm previews have so far been tested against recorded output only. Reports from real
-clusters are very welcome.
+The kubectl previews have been tested against a k3s API server. Helm commands are recognised but
+not previewed yet. Reports from other clusters (EKS, GKE, AKS, OpenShift) are very welcome.
 
 ## Planned
 
