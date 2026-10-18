@@ -9,10 +9,11 @@ All notable changes to this project are documented here. The format follows
 ### Added
 
 - Claude Code PreToolUse hook for Bash, PowerShell and file edits.
-- Previews for `terraform`/`tofu` apply and destroy, `terragrunt`, `kubectl delete` and `kubectl apply`.
+- Previews for `terraform`/`tofu` apply and destroy, `terragrunt`, `kubectl delete`, `kubectl apply`
+  and `helm uninstall`.
 - Recognition of destructive `helm`, `pulumi`, `aws`, `gcloud`, `gsutil` and `az` commands.
 - State tracking across chained commands: `cd`, `export`, `terraform workspace select`,
-  `kubectl config use-context`, `kubectx`, PowerShell `$env:` assignments.
+  `kubectl config use-context`, `kubectx`, `pulumi stack select`, PowerShell `$env:` assignments.
 - Policy with environments, protected resources, extra stateful types and aliases.
   Project config files can only make rules stricter.
 - Self-protection: commands and edits that would switch blast-radius off need approval.

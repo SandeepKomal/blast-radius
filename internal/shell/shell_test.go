@@ -33,6 +33,14 @@ func TestParse(t *testing.T) {
 		{`eval "terraform destroy -auto-approve"`, [][]string{{"terraform", "destroy", "-auto-approve"}}},
 		{`pwsh -NoProfile -Command terraform destroy`, [][]string{{"terraform", "destroy"}}},
 		{`(cd infra; terraform destroy)`, [][]string{{"cd", "infra"}, {"terraform", "destroy"}}},
+		// Heredoc bodies are data unless a shell runs them.
+		{"cat > notes.md <<'EOF'\nterraform destroy\nEOF\necho done", [][]string{{"cat"}, {"echo", "done"}}},
+		{"cat <<-EOF\n\tterraform destroy\n\tEOF\nterraform apply", [][]string{{"cat"}, {"terraform", "apply"}}},
+		{"kubectl apply -f - <<EOF\nkind: Pod\nEOF", [][]string{{"kubectl", "apply", "-f", "-"}}},
+		{"bash <<EOF\nterraform destroy\nEOF", [][]string{{"bash"}, {"terraform", "destroy"}}},
+		{"cat <<EOF | sh\nkubectl delete ns x\nEOF", [][]string{{"cat"}, {"sh"}, {"kubectl", "delete", "ns", "x"}}},
+		{"cat <<EOF\nnever closed\nterraform destroy", [][]string{{"cat"}}},
+		{`cat <<< "terraform destroy"`, [][]string{{"cat"}}},
 	}
 	for _, tt := range tests {
 		if got := args(Parse(tt.script)); !reflect.DeepEqual(got, tt.want) {

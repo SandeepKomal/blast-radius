@@ -68,6 +68,14 @@ type parser struct {
 	word      strings.Builder
 	inWord    bool
 	skipWord  bool // the next word is a redirection target
+	lineStart int  // index in out of the first command on the current line
+	heredocs  []heredoc
+}
+
+// heredoc is a << redirection whose body starts on the next line.
+type heredoc struct {
+	delim     string
+	stripTabs bool // <<- removes leading tabs
 }
 
 func (p *parser) nested(script string) []Command {
@@ -148,8 +156,13 @@ func (p *parser) parse(s string) {
 				p.inWord = false
 			}
 			p.flushWord()
+			start := i
 			for i+1 < len(s) && strings.IndexByte("<>&", s[i+1]) >= 0 {
 				i++
+			}
+			if !p.ps && s[start:i+1] == "<<" {
+				i = p.heredocStart(s, i+1)
+				continue
 			}
 			// `2>&1` duplicates a descriptor rather than naming a file.
 			if s[i] == '&' {
@@ -159,7 +172,14 @@ func (p *parser) parse(s string) {
 				continue
 			}
 			p.skipWord = true
-		case c == '\n' || c == ';' || c == '&' || c == '|' || c == '(' || c == ')':
+		case c == '\n' && len(p.heredocs) > 0:
+			p.flushCommand()
+			i = p.heredocBodies(s, i+1)
+			p.lineStart = len(p.out)
+		case c == '\n':
+			p.flushCommand()
+			p.lineStart = len(p.out)
+		case c == ';' || c == '&' || c == '|' || c == '(' || c == ')':
 			p.flushCommand()
 		default:
 			p.word.WriteByte(c)
@@ -167,6 +187,68 @@ func (p *parser) parse(s string) {
 		}
 	}
 	p.flushCommand()
+}
+
+// heredocStart reads the delimiter of a << redirection starting at s[i] and
+// returns the index of its last character.
+func (p *parser) heredocStart(s string, i int) int {
+	h := heredoc{}
+	if i < len(s) && s[i] == '-' {
+		h.stripTabs = true
+		i++
+	}
+	for i < len(s) && (s[i] == ' ' || s[i] == '\t') {
+		i++
+	}
+	var d strings.Builder
+	for ; i < len(s) && strings.IndexByte(" \t\r\n;&|<>()", s[i]) < 0; i++ {
+		if s[i] != '\'' && s[i] != '"' && s[i] != '\\' {
+			d.WriteByte(s[i])
+		}
+	}
+	h.delim = d.String()
+	p.heredocs = append(p.heredocs, h)
+	return i - 1
+}
+
+// heredocBodies reads the bodies of the heredocs started on the line that
+// just ended, starting at s[i], and returns the index of the last character
+// it consumed. A body is data unless a shell on that line reads it as a
+// script, as in `bash <<EOF` or `cat <<EOF | sh`; then it is parsed as
+// commands.
+func (p *parser) heredocBodies(s string, i int) int {
+	script := false
+	for _, c := range p.out[p.lineStart:] {
+		name := c.Program()
+		if (shells[name] || powershells[name] || name == "source" || name == ".") && len(c.Args) == 1 {
+			script = true
+		}
+	}
+	end := i - 1
+	for _, h := range p.heredocs {
+		var body []string
+		for i < len(s) {
+			line := s[i:]
+			if j := strings.IndexByte(line, '\n'); j >= 0 {
+				line = line[:j]
+			}
+			i += len(line) + 1
+			end = min(i, len(s)) - 1
+			line = strings.TrimRight(line, "\r")
+			if h.stripTabs {
+				line = strings.TrimLeft(line, "\t")
+			}
+			if line == h.delim {
+				break
+			}
+			body = append(body, line)
+		}
+		if script {
+			p.out = append(p.out, p.nested(strings.Join(body, "\n"))...)
+		}
+	}
+	p.heredocs = nil
+	return end
 }
 
 // doubleQuoted reads a "..." string starting after the opening quote and

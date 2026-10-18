@@ -40,9 +40,10 @@
    PowerShell's quoting rules.
 2. **Follow state.** Earlier commands in the same line change what later
    ones mean: `cd`, `export`/`unset`, `$env:NAME = ...`,
-   `terraform workspace select`, `kubectl config use-context` and `kubectx`.
-   So `terraform workspace select prod && terraform destroy` is judged
-   against `prod`.
+   `terraform workspace select`, `kubectl config use-context`, `kubectx` and
+   `pulumi stack select`. So `terraform workspace select prod && terraform
+   destroy` is judged against `prod`. Heredoc bodies are treated as data,
+   unless a shell reads them (`bash <<EOF`, `cat <<EOF | sh`).
 3. **Preview.** Each infrastructure command is previewed with its own
    read-only mode, using the same flags, directory, environment and context:
 
@@ -53,6 +54,7 @@
    | `terragrunt apply`/`destroy` (one module) | the same, through terragrunt |
    | `kubectl delete` | `kubectl get` with the same selection; namespaces also list their contents |
    | `kubectl apply` | `kubectl diff` with the same flags |
+   | `helm uninstall` | `helm get manifest` for each release |
 
    Previews never take state locks or write state. They run with a deadline,
    and on timeout the whole process tree is killed, so a hung provider
