@@ -96,6 +96,29 @@ func hookClaude(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (
 	reason := render.Text(findings, verdicts, false)
 	if action == policy.Deny {
 		reason += denyAdvice
+	} else if w := askWarning(findings); w != "" {
+		// Claude Code preselects "Yes" in its prompt, so lead with what is lost.
+		reason = w + "\n" + reason
 	}
 	return writeDecision(stdout, action, reason)
+}
+
+// askWarning summarises how many resources a command would delete, or
+// returns "" if it deletes none that blast-radius could list.
+func askWarning(findings []analyze.Finding) string {
+	n := 0
+	for _, f := range findings {
+		for _, r := range f.Resources {
+			if r.Lost() {
+				n++
+			}
+		}
+	}
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return "WARNING: this deletes 1 resource. Choose No unless you meant to."
+	}
+	return fmt.Sprintf("WARNING: this deletes %d resources. Choose No unless you meant to.", n)
 }
