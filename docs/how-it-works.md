@@ -35,9 +35,11 @@
 
 1. **Parse.** The command line is split into simple commands the way a shell
    would: `&&`, `||`, `;`, pipes, subshells, `$(...)`, backticks, `eval`,
-   `sh -c`, `pwsh -Command`, env prefixes and wrappers such as `sudo`,
-   `env`, `timeout` and `xargs`. PowerShell commands are parsed with
-   PowerShell's quoting rules.
+   `sh -c`, `pwsh -Command`, `cmd /c`, `Invoke-Expression`, env prefixes and
+   wrappers such as `sudo`, `env`, `timeout` and `xargs`. PowerShell commands
+   are parsed with PowerShell's quoting rules. Commands run on another
+   machine with `ssh host '...'` are checked too, but can't be previewed, so
+   infrastructure commands there are treated as destructive.
 2. **Follow state.** Earlier commands in the same line change what later
    ones mean: `cd`, `export`/`unset`, `$env:NAME = ...`,
    `terraform workspace select`, `kubectl config use-context`, `kubectx` and

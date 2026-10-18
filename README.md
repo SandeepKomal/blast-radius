@@ -95,9 +95,8 @@ Out of the box:
 
 The environment is matched against the Terraform workspace or Pulumi stack, kube context and
 namespace, AWS profile, gcloud project, Azure subscription and resource group, and working
-directory. You can add environments, protect specific
-resources so they are never deleted, mark your own resource types as holding data, and keep an
-audit log:
+directory. You can add environments, protect specific resources so they are never deleted, mark
+your own resource types as holding data, and keep an audit log:
 
 ```json
 {

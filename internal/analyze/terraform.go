@@ -198,6 +198,11 @@ func (a *Analyzer) tfPreview(ctx context.Context, f *Finding, c shell.Command, d
 			planArgs = append(planArgs, "-destroy")
 		}
 		planArgs = append(planArgs, kept...)
+		workDir := dir
+		if v, ok := flagValue(global, "-chdir"); ok {
+			workDir = resolve(dir, v)
+		}
+		defer keepWorkspaces(workDir)()
 		res, err := a.Run(ctx, dir, env, tf, planArgs...)
 		if err != nil || res.ExitCode != 0 {
 			unavailable(f, "terraform plan failed", res, err)
@@ -287,4 +292,30 @@ func tfWorkspace(env []string, st *state, workDir string) string {
 		}
 	}
 	return "default"
+}
+
+// keepWorkspaces undoes a side effect of planning in a workspace that does
+// not exist yet: with the local backend, terraform creates an empty
+// terraform.tfstate.d/<name> directory, after which the workspace appears to
+// exist. The returned function removes such directories if they are still
+// empty. Directories that existed before, or that now hold state, are kept.
+func keepWorkspaces(workDir string) func() {
+	root := filepath.Join(workDir, "terraform.tfstate.d")
+	before := map[string]bool{}
+	entries, err := os.ReadDir(root)
+	rootExisted := err == nil
+	for _, e := range entries {
+		before[e.Name()] = true
+	}
+	return func() {
+		entries, _ := os.ReadDir(root)
+		for _, e := range entries {
+			if e.IsDir() && !before[e.Name()] {
+				os.Remove(filepath.Join(root, e.Name())) // fails, harmlessly, unless empty
+			}
+		}
+		if !rootExisted {
+			os.Remove(root)
+		}
+	}
 }

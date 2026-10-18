@@ -19,6 +19,7 @@ All notable changes to this project are documented here. The format follows
   config files, so production is recognised without flags.
 - Policy with environments, protected resources, extra stateful types and aliases.
   Project config files can only make rules stricter.
+- Commands nested in `cmd /c`, `Invoke-Expression` and `ssh host '...'` are checked.
 - Self-protection: commands and edits that would switch blast-radius off need approval.
 - `doctor`, `init`, `check --json` and an optional audit log.
 - Fail-closed behaviour: hook errors, timeouts, bad input and config errors never pass.

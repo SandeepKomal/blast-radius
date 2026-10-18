@@ -58,6 +58,11 @@ func TestParsePowerShell(t *testing.T) {
 		{`cd C:\infra; terraform apply`, [][]string{{"cd", `C:\infra`}, {"terraform", "apply"}}},
 		{"kubectl delete ns `\"prod`\"", [][]string{{"kubectl", "delete", "ns", `"prod"`}}},
 		{`$env:TF_WORKSPACE = 'prod'; terraform destroy`, [][]string{{"$env:TF_WORKSPACE", "=", "prod"}, {"terraform", "destroy"}}},
+		{`Invoke-Expression "terraform destroy"`, [][]string{{"terraform", "destroy"}}},
+		{`iex 'kubectl delete ns x'`, [][]string{{"kubectl", "delete", "ns", "x"}}},
+		{`cmd /c terraform destroy`, [][]string{{"terraform", "destroy"}}},
+		{`cmd.exe /d /c "cd C:\infra && terraform destroy"`, [][]string{{"cd", `C:\infra`}, {"terraform", "destroy"}}},
+		{`cmd /?`, [][]string{{"cmd", "/?"}}},
 	}
 	for _, tt := range tests {
 		if got := args(ParsePowerShell(tt.script)); !reflect.DeepEqual(got, tt.want) {
