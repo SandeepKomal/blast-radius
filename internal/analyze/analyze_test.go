@@ -85,7 +85,7 @@ func TestTerraformApply(t *testing.T) {
 	if !reflect.DeepEqual(f.Resources, want) {
 		t.Errorf("resources = %+v", f.Resources)
 	}
-	if f.Target != "workspace default" || !strings.HasSuffix(f.Labels[1], "/infra") {
+	if f.Target != "workspace default" || filepath.Base(f.Labels[1]) != "infra" {
 		t.Errorf("target %q labels %q", f.Target, f.Labels)
 	}
 }
