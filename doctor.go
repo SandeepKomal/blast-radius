@@ -68,6 +68,7 @@ func doctor(stdout io.Writer, run analyze.Runner) int {
 	}
 
 	selfTest(c)
+	checkClaudeVersion(c)
 
 	for _, tool := range []string{"terraform", "tofu", "terragrunt", "kubectl", "helm"} {
 		if p, err := exec.LookPath(tool); err == nil {
@@ -89,6 +90,86 @@ func doctor(stdout io.Writer, run analyze.Runner) int {
 	}
 	fmt.Fprintln(stdout, "\nAll checks passed.")
 	return 0
+}
+
+// minClaudeVersion is the first Claude Code release with onFailure, which
+// makes a crashed or timed-out hook block the tool call.
+var minClaudeVersion = [3]int{2, 1, 295}
+
+func checkClaudeVersion(c *checkList) {
+	if _, err := exec.LookPath("claude"); err != nil {
+		c.info("claude not found on PATH; Claude Code v%d.%d.%d or later is needed for fail-closed hooks", minClaudeVersion[0], minClaudeVersion[1], minClaudeVersion[2])
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "claude", "--version").Output()
+	if err != nil {
+		c.info("could not run `claude --version`: %v", err)
+		return
+	}
+	v, ok := parseVersion(string(out))
+	switch {
+	case !ok:
+		c.info("could not read the Claude Code version from %q", strings.TrimSpace(string(out)))
+	case lessVersion(v, minClaudeVersion):
+		c.warn("Claude Code %d.%d.%d is older than %d.%d.%d: a crash or timeout of the hook lets commands through. Run `claude update`",
+			v[0], v[1], v[2], minClaudeVersion[0], minClaudeVersion[1], minClaudeVersion[2])
+	default:
+		c.ok("Claude Code %d.%d.%d", v[0], v[1], v[2])
+	}
+}
+
+// parseVersion reads the first x.y.z in s.
+func parseVersion(s string) ([3]int, bool) {
+	for _, field := range strings.Fields(s) {
+		parts := strings.SplitN(strings.TrimPrefix(field, "v"), ".", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		var v [3]int
+		ok := true
+		for i, p := range parts {
+			n := 0
+			digits := 0
+			for _, r := range p {
+				if r < '0' || r > '9' {
+					break
+				}
+				n = n*10 + int(r-'0')
+				digits++
+			}
+			if digits == 0 {
+				ok = false
+				break
+			}
+			v[i] = n
+		}
+		if ok {
+			return v, true
+		}
+	}
+	return [3]int{}, false
+}
+
+func lessVersion(a, b [3]int) bool {
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] < b[i]
+		}
+	}
+	return false
+}
+
+// binaryVersion asks another blast-radius binary for its version.
+func binaryVersion(path string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "version").Output()
+	if err != nil {
+		return "version unknown"
+	}
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(out)), "blast-radius"))
 }
 
 func findOurHook(path string) (map[string]any, error) {
@@ -129,6 +210,10 @@ func checkHook(c *checkList, path string, h map[string]any) {
 		}
 	} else if _, err := exec.LookPath(cmd); err != nil {
 		c.warn("hook command %q is not on PATH here; Claude Code may not find it either", cmd)
+	}
+	if other := otherBinary(cmd); other != "" {
+		c.warn("the hook runs %s (%s), not this copy (%s); replace that file to use this version",
+			other, binaryVersion(other), versionString())
 	}
 	if h["onFailure"] != "block" {
 		c.warn("hook does not set onFailure: \"block\", so a crash or timeout lets commands through; run `blast-radius install` to update")

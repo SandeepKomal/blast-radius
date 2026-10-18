@@ -21,6 +21,7 @@ All notable changes to this project are documented here. The format follows
   Project config files can only make rules stricter.
 - Commands nested in `cmd /c`, `Invoke-Expression` and `ssh host '...'` are checked.
 - Self-protection: commands and edits that would switch blast-radius off need approval.
-- `doctor`, `init`, `check --json` and an optional audit log.
+- `doctor`, `init`, `check --json` and an optional audit log. `doctor` warns when Claude Code
+  is too old for fail-closed hooks, or when the hook runs a different blast-radius binary.
 - Fail-closed behaviour: hook errors, timeouts, bad input and config errors never pass.
 - Release archives for Linux, macOS and Windows with signed build provenance.

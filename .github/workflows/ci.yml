@@ -102,3 +102,16 @@ jobs:
         env:
           BLAST_RADIUS_E2E_KUBE: "1"
         run: go test -tags e2e -count=1 -v ./e2e/
+
+  e2e-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+      - name: End-to-end tests
+        run: go test -tags e2e -count=1 -v -run "TestTerraform|TestHookBinary|TestEvasion" ./e2e/

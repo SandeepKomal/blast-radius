@@ -255,29 +255,58 @@ func TestPulumi(t *testing.T) {
 	}
 }
 
+// TestHookBinary feeds the hook the JSON Claude Code sends, for both the
+// Bash and the PowerShell tool, with the working directory given the way
+// Claude Code gives it on this OS.
 func TestHookBinary(t *testing.T) {
 	tf := terraformBinary(t)
 	environ := env(t)
 	dir := demo(t, tf, environ)
-	input, _ := json.Marshal(map[string]any{
-		"hook_event_name": "PreToolUse",
-		"tool_name":       "Bash",
-		"tool_input":      map[string]string{"command": "cd " + dir + " && " + tf + " workspace select prod && " + tf + " destroy -auto-approve"},
-		"cwd":             t.TempDir(),
-	})
-	cmd := exec.Command(binary, "hook", "claude")
-	cmd.Env, cmd.Stdin = environ, bytes.NewReader(input)
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatal(err)
+	slashed := filepath.ToSlash(dir)
+	cases := []struct {
+		tool, command, cwd, want string
+	}{
+		{"Bash", tf + " destroy -auto-approve", dir, "ask"},
+		{"Bash", "cd '" + slashed + "' && " + tf + " workspace select prod && " + tf + " destroy -auto-approve", t.TempDir(), "deny"},
+		{"Bash", tf + " plan", dir, ""},
+		{"PowerShell", tf + " destroy -auto-approve", dir, "ask"},
+		{"PowerShell", "Set-Location '" + dir + "'; $env:TF_WORKSPACE = 'prod'; " + tf + " destroy -auto-approve", t.TempDir(), "deny"},
+		{"PowerShell", "& " + tf + " state list", dir, ""},
 	}
-	var o struct {
-		HookSpecificOutput struct {
-			PermissionDecision string `json:"permissionDecision"`
-		} `json:"hookSpecificOutput"`
+	if runtime.GOOS == "windows" {
+		// Git Bash writes C:\x as /c/x.
+		msys := "/" + strings.ToLower(slashed[:1]) + slashed[2:]
+		cases = append(cases, struct{ tool, command, cwd, want string }{
+			"Bash", "cd " + msys + " && " + tf + " destroy -auto-approve", t.TempDir(), "ask"})
 	}
-	if err := json.Unmarshal(out, &o); err != nil || o.HookSpecificOutput.PermissionDecision != "deny" {
-		t.Errorf("hook output %s (%v)", out, err)
+	for _, tc := range cases {
+		input, _ := json.Marshal(map[string]any{
+			"hook_event_name": "PreToolUse",
+			"tool_name":       tc.tool,
+			"tool_input":      map[string]string{"command": tc.command},
+			"cwd":             tc.cwd,
+		})
+		cmd := exec.Command(binary, "hook", "claude")
+		cmd.Env, cmd.Stdin = environ, bytes.NewReader(input)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("%s %q: %v", tc.tool, tc.command, err)
+		}
+		got := ""
+		if len(bytes.TrimSpace(out)) > 0 {
+			var o struct {
+				HookSpecificOutput struct {
+					PermissionDecision string `json:"permissionDecision"`
+				} `json:"hookSpecificOutput"`
+			}
+			if err := json.Unmarshal(out, &o); err != nil {
+				t.Fatalf("%s %q: bad output %s", tc.tool, tc.command, out)
+			}
+			got = o.HookSpecificOutput.PermissionDecision
+		}
+		if got != tc.want {
+			t.Errorf("%s %q: decision %q, want %q\n%s", tc.tool, tc.command, got, tc.want, out)
+		}
 	}
 }
 

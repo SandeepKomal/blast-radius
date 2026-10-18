@@ -42,7 +42,12 @@ func install(add bool, args []string, stdout, stderr io.Writer) int {
 	}
 	var entry map[string]any
 	if add {
-		entry = hookEntry(hookCommand(*project))
+		cmd := hookCommand(*project)
+		entry = hookEntry(cmd)
+		if other := otherBinary(cmd); other != "" {
+			fmt.Fprintf(stderr, "Note: the hook will run %s, the blast-radius found on your PATH, not this copy (%s).\n"+
+				"Replace that file with this one to use this version.\n", other, selfPath())
+		}
 	}
 	status, err := updateSettings(path, entry)
 	if err != nil {
@@ -243,4 +248,44 @@ func writeFileAtomic(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// selfPath is the running binary with symlinks resolved.
+func selfPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		return real
+	}
+	return exe
+}
+
+// otherBinary returns the file the hook command runs if it is not the
+// running binary, or "" if it is the same or can't be found.
+func otherBinary(command string) string {
+	p := command
+	if !filepath.IsAbs(p) {
+		found, err := exec.LookPath(p)
+		if err != nil {
+			return ""
+		}
+		p = found
+	}
+	real, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return ""
+	}
+	self := selfPath()
+	if self == "" || sameFile(real, self) {
+		return ""
+	}
+	return real
+}
+
+func sameFile(a, b string) bool {
+	fa, errA := os.Stat(a)
+	fb, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(fa, fb)
 }
