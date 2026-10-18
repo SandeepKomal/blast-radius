@@ -36,10 +36,12 @@ const usage = `blast-radius shows what an infrastructure command would break bef
 Usage:
   blast-radius install [--project]   add the Claude Code hook (user settings, or .claude/settings.json)
   blast-radius uninstall [--project] remove the Claude Code hook
-  blast-radius check [-C dir] [--json] <command>
+  blast-radius check [-C dir] [--json] [--shell bash|powershell] <command>
                                      preview a command yourself
-  blast-radius hook claude           run as a Claude Code PreToolUse hook (reads JSON on stdin)
+  blast-radius doctor                check that the hook, config and tools are set up correctly
+  blast-radius init [--user]         write a starter .blast-radius.json (or your user config)
   blast-radius config                print the policy in effect for this directory
+  blast-radius hook claude           run as a Claude Code PreToolUse hook (reads JSON on stdin)
   blast-radius version
 
 check exits 0 when the command can run, 10 when it needs approval, 20 when it is blocked.
@@ -72,6 +74,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return check(args[1:], stdout, stderr, analyze.ExecRunner)
 	case "install", "uninstall":
 		return install(args[0] == "install", args[1:], stdout, stderr)
+	case "doctor":
+		return doctor(stdout, analyze.ExecRunner)
+	case "init":
+		return initConfig(args[1:], stdout, stderr)
 	case "config":
 		return printConfig(stdout, stderr)
 	case "version", "--version", "-v":
@@ -85,21 +91,48 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return 2
 }
 
-// evaluate analyzes script and applies the policy for dir.
-func evaluate(script, dir string, run analyze.Runner, stderr io.Writer) ([]analyze.Finding, []policy.Verdict, policy.Action) {
-	cfg, err := policy.Load(dir)
-	if err != nil {
-		fmt.Fprintf(stderr, "blast-radius: %v (using the built-in policy)\n", err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.PreviewTimeoutSeconds)*time.Second)
-	defer cancel()
+// request is one thing to check: a shell command or a file edit.
+type request struct {
+	tool     string // Bash, PowerShell, Edit...
+	script   string
+	shell    analyze.Shell
+	editPath string
+	dir      string
+}
 
-	findings := (&analyze.Analyzer{Run: run}).Analyze(ctx, script, dir)
+// evaluate analyzes a request and applies the policy for its directory.
+func evaluate(req request, run analyze.Runner, stderr io.Writer) ([]analyze.Finding, []policy.Verdict, policy.Action) {
+	cfg, cfgErr := policy.Load(req.dir)
+	if cfgErr != nil {
+		fmt.Fprintf(stderr, "blast-radius: %v\n", cfgErr)
+	}
+	a := &analyze.Analyzer{Run: run, Aliases: cfg.Aliases, Stateful: cfg.Stateful}
+
+	var findings []analyze.Finding
+	if req.editPath != "" {
+		findings = a.AnalyzeFileEdit(req.editPath)
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.PreviewTimeoutSeconds)*time.Second)
+		defer cancel()
+		findings = a.Analyze(ctx, req.script, req.dir, req.shell)
+	}
+
 	verdicts := make([]policy.Verdict, len(findings))
 	for i, f := range findings {
 		verdicts[i] = cfg.Decide(f)
+		// A broken config could be hiding stricter rules, so never let it pass.
+		if cfgErr != nil && verdicts[i].Action == policy.Pass {
+			verdicts[i].Action = policy.Ask
+			verdicts[i].Reason = "config error: " + cfgErr.Error()
+		}
 	}
-	return findings, verdicts, policy.Strictest(verdicts)
+	action := policy.Strictest(verdicts)
+	if cfg.AuditLog != "" && len(findings) > 0 {
+		if err := writeAudit(cfg.AuditLog, req, findings, verdicts, action); err != nil {
+			fmt.Fprintf(stderr, "blast-radius: audit log: %v\n", err)
+		}
+	}
+	return findings, verdicts, action
 }
 
 func check(args []string, stdout, stderr io.Writer, run analyze.Runner) int {
@@ -107,19 +140,28 @@ func check(args []string, stdout, stderr io.Writer, run analyze.Runner) int {
 	fs.SetOutput(stderr)
 	dir := fs.String("C", "", "directory the command runs in (default: current directory)")
 	asJSON := fs.Bool("json", false, "print findings as JSON")
+	shellName := fs.String("shell", "bash", "how to parse the command: bash or powershell")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() == 0 {
-		fmt.Fprintln(stderr, "usage: blast-radius check [-C dir] [--json] <command>")
+		fmt.Fprintln(stderr, "usage: blast-radius check [-C dir] [--json] [--shell bash|powershell] <command>")
 		return 2
 	}
 	if *dir == "" {
 		*dir, _ = os.Getwd()
 	}
-	script := strings.Join(fs.Args(), " ")
+	req := request{tool: "check", script: strings.Join(fs.Args(), " "), dir: *dir}
+	switch *shellName {
+	case "bash":
+	case "powershell", "pwsh":
+		req.shell = analyze.PowerShell
+	default:
+		fmt.Fprintf(stderr, "unknown shell %q (use bash or powershell)\n", *shellName)
+		return 2
+	}
 
-	findings, verdicts, action := evaluate(script, *dir, run, stderr)
+	findings, verdicts, action := evaluate(req, run, stderr)
 	if *asJSON {
 		type item struct {
 			analyze.Finding
@@ -135,7 +177,10 @@ func check(args []string, stdout, stderr io.Writer, run analyze.Runner) int {
 		}
 		enc := json.NewEncoder(stdout)
 		enc.SetIndent("", "  ")
-		enc.Encode(out)
+		if err := enc.Encode(out); err != nil {
+			fmt.Fprintln(stderr, "blast-radius:", err)
+			return 1
+		}
 	} else if len(findings) == 0 {
 		fmt.Fprintln(stdout, "blast-radius: nothing destructive found")
 	} else {
@@ -158,14 +203,18 @@ func printConfig(stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "blast-radius:", err)
 		return 1
 	}
-	src := cfg.Source
-	if src == "" {
-		src = "built-in default (create " + policy.FileName + " to change it)"
+	if len(cfg.Sources) == 0 {
+		fmt.Fprintf(stdout, "# source: built-in default (run `blast-radius init` to create %s)\n", policy.FileName)
 	}
-	fmt.Fprintln(stdout, "# source:", src)
+	for _, s := range cfg.Sources {
+		fmt.Fprintln(stdout, "# source:", s)
+	}
 	enc := json.NewEncoder(stdout)
 	enc.SetIndent("", "  ")
-	enc.Encode(cfg)
+	if err := enc.Encode(cfg); err != nil {
+		fmt.Fprintln(stderr, "blast-radius:", err)
+		return 1
+	}
 	return 0
 }
 

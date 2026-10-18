@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -13,7 +14,14 @@ import (
 	"strings"
 )
 
-const hookTimeoutSeconds = 120
+const (
+	// hookTimeoutSeconds is how long Claude Code waits for the hook. Previews
+	// are capped below it (policy.MaxPreviewTimeout), so they end in "ask".
+	hookTimeoutSeconds = 300
+	// hookMatcher covers shell commands on every platform, and file edits so
+	// changes to blast-radius's own settings need approval.
+	hookMatcher = "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
+)
 
 func install(add bool, args []string, stdout, stderr io.Writer) int {
 	name := "install"
@@ -32,20 +40,28 @@ func install(add bool, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "blast-radius:", err)
 		return 1
 	}
-	changed, err := updateSettings(path, hookCommand(), add)
+	var entry map[string]any
+	if add {
+		entry = hookEntry(hookCommand(*project))
+	}
+	status, err := updateSettings(path, entry)
 	if err != nil {
 		fmt.Fprintln(stderr, "blast-radius:", err)
 		return 1
 	}
-	switch {
-	case add && changed:
-		fmt.Fprintf(stdout, "Added the blast-radius hook to %s\nRestart Claude Code (or run /hooks) to load it.\n", path)
-	case add:
-		fmt.Fprintf(stdout, "blast-radius is already installed in %s\n", path)
-	case changed:
+	switch status {
+	case "added":
+		fmt.Fprintf(stdout, "Added the blast-radius hook to %s\nRestart Claude Code to load it, then run `blast-radius doctor` to check the setup.\n", path)
+	case "updated":
+		fmt.Fprintf(stdout, "Updated the blast-radius hook in %s\nRestart Claude Code to load it.\n", path)
+	case "removed":
 		fmt.Fprintf(stdout, "Removed the blast-radius hook from %s\n", path)
-	default:
-		fmt.Fprintf(stdout, "blast-radius was not installed in %s\n", path)
+	case "unchanged":
+		if add {
+			fmt.Fprintf(stdout, "blast-radius is already installed in %s\n", path)
+		} else {
+			fmt.Fprintf(stdout, "blast-radius was not installed in %s\n", path)
+		}
 	}
 	return 0
 }
@@ -59,16 +75,36 @@ func settingsPath(project bool) (string, error) {
 	return filepath.Join(home, ".claude", "settings.json"), err
 }
 
-// hookCommand is the command Claude Code runs: the bare name when it is on
-// PATH, otherwise the absolute path of this binary.
-func hookCommand() string {
-	if _, err := exec.LookPath("blast-radius"); err == nil {
-		return "blast-radius hook claude"
+// hookCommand is the program Claude Code runs. User settings get an absolute
+// path, because Claude Code started from a desktop launcher may not have the
+// shell's PATH, and with onFailure "block" a hook it can't find would block
+// every command. Project settings, which are shared, use the bare name.
+func hookCommand(project bool) string {
+	if project {
+		return "blast-radius"
+	}
+	if p, err := exec.LookPath("blast-radius"); err == nil {
+		if abs, err := filepath.Abs(p); err == nil {
+			return abs
+		}
 	}
 	if exe, err := os.Executable(); err == nil {
-		return fmt.Sprintf("%q hook claude", exe)
+		return exe
 	}
-	return "blast-radius hook claude"
+	return "blast-radius"
+}
+
+func hookEntry(command string) map[string]any {
+	return map[string]any{
+		"matcher": hookMatcher,
+		"hooks": []any{map[string]any{
+			"type":      "command",
+			"command":   command,
+			"args":      []any{"hook", "claude"},
+			"timeout":   hookTimeoutSeconds,
+			"onFailure": "block",
+		}},
+	}
 }
 
 func isOurHook(h any) bool {
@@ -77,24 +113,29 @@ func isOurHook(h any) bool {
 		return false
 	}
 	cmd, _ := m["command"].(string)
+	base := strings.TrimSuffix(strings.ToLower(filepath.Base(filepath.ToSlash(cmd))), ".exe")
+	if args, ok := m["args"].([]any); ok && len(args) > 0 && args[0] == "hook" && base == "blast-radius" {
+		return true
+	}
 	return strings.Contains(cmd, "blast-radius") && strings.Contains(cmd, "hook claude")
 }
 
-// updateSettings adds or removes the PreToolUse hook entry in a Claude Code
-// settings file, keeping everything else. It reports whether it changed.
-func updateSettings(path, command string, add bool) (bool, error) {
+// updateSettings replaces any blast-radius hook in a Claude Code settings
+// file with entry, or removes it when entry is nil, keeping everything else.
+// It returns "added", "updated", "removed" or "unchanged".
+func updateSettings(path string, entry map[string]any) (string, error) {
 	settings := map[string]any{}
-	b, err := os.ReadFile(path)
+	before, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		if !add {
-			return false, nil
+		if entry == nil {
+			return "unchanged", nil
 		}
 	case err != nil:
-		return false, err
+		return "", err
 	default:
-		if err := json.Unmarshal(b, &settings); err != nil {
-			return false, fmt.Errorf("%s is not valid JSON: %w", path, err)
+		if err := json.Unmarshal(before, &settings); err != nil {
+			return "", fmt.Errorf("%s is not valid JSON: %w", path, err)
 		}
 	}
 
@@ -128,18 +169,11 @@ func updateSettings(path, command string, add bool) (bool, error) {
 			kept = append(kept, m)
 		}
 	}
-	if found == add {
-		return false, nil // already installed, or nothing to remove
+	if entry == nil && !found {
+		return "unchanged", nil
 	}
-	if add {
-		kept = append(kept, map[string]any{
-			"matcher": "Bash",
-			"hooks": []any{map[string]any{
-				"type":    "command",
-				"command": command,
-				"timeout": hookTimeoutSeconds,
-			}},
-		})
+	if entry != nil {
+		kept = append(kept, entry)
 	}
 
 	if len(kept) > 0 {
@@ -155,10 +189,58 @@ func updateSettings(path, command string, add bool) (bool, error) {
 
 	out, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
-		return false, err
+		return "", err
+	}
+	out = append(out, '\n')
+	if bytes.Equal(normalize(before), normalize(out)) {
+		return "unchanged", nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return false, err
+		return "", err
 	}
-	return true, os.WriteFile(path, append(out, '\n'), 0o644)
+	if err := writeFileAtomic(path, out); err != nil {
+		return "", err
+	}
+	switch {
+	case entry == nil:
+		return "removed", nil
+	case found:
+		return "updated", nil
+	}
+	return "added", nil
+}
+
+// normalize re-encodes JSON so formatting differences don't count as changes.
+func normalize(b []byte) []byte {
+	var v any
+	if json.Unmarshal(b, &v) != nil {
+		return b
+	}
+	out, _ := json.Marshal(v)
+	return out
+}
+
+// writeFileAtomic writes through a temp file so a crash can't leave Claude
+// Code with half a settings file.
+func writeFileAtomic(path string, data []byte) error {
+	mode := os.FileMode(0o644)
+	if st, err := os.Stat(path); err == nil {
+		mode = st.Mode().Perm()
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".settings-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), mode); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }

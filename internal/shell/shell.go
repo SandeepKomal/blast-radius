@@ -1,29 +1,35 @@
 // Package shell splits a shell command line into simple commands.
 //
 // It is a best-effort parser for the kind of commands coding agents run
-// (pipelines, &&-chains, env prefixes, sudo, sh -c, $(...)), not a full
-// POSIX shell. It never executes anything.
+// (pipelines, &&-chains, env prefixes, sudo, sh -c, eval, $(...)), not a full
+// POSIX or PowerShell implementation. It never executes anything.
 package shell
 
 import (
-	"path"
 	"regexp"
 	"strings"
 )
 
 // Command is one simple command with its quotes removed.
 type Command struct {
-	Env  []string // leading VAR=value assignments, e.g. TF_WORKSPACE=prod
-	Args []string // program and its arguments
+	Env       []string // leading VAR=value assignments, e.g. TF_WORKSPACE=prod
+	Args      []string // program and its arguments
+	Redirects []string // files the command reads or writes through <, > or >>
 }
 
-// Program returns the base name of the program, e.g. "terraform" for
-// "/usr/local/bin/terraform".
+// Program returns the lower-case base name of the program without a Windows
+// .exe suffix, e.g. "terraform" for "/usr/local/bin/terraform" or
+// `C:\tools\terraform.exe`.
 func (c Command) Program() string {
 	if len(c.Args) == 0 {
 		return ""
 	}
-	return path.Base(c.Args[0])
+	p := c.Args[0]
+	if i := strings.LastIndexAny(p, `/\`); i >= 0 {
+		p = p[i+1:]
+	}
+	p = strings.ToLower(p)
+	return strings.TrimSuffix(p, ".exe")
 }
 
 // String renders the command roughly as it was typed.
@@ -37,21 +43,38 @@ func (c Command) String() string {
 	return strings.Join(parts, " ")
 }
 
-// Parse splits script into simple commands in execution order. Commands
-// nested in $(...), backticks or `sh -c '...'` are included, before the
-// command that contains them.
+// Parse splits a POSIX shell script into simple commands in execution order.
+// Commands nested in $(...), backticks, eval or `sh -c '...'` are included,
+// before the command that contains them.
 func Parse(script string) []Command {
 	p := &parser{}
 	p.parse(script)
 	return p.out
 }
 
+// ParsePowerShell is Parse for PowerShell, where the backtick is the escape
+// character and backslashes are literal path separators.
+func ParsePowerShell(script string) []Command {
+	p := &parser{ps: true}
+	p.parse(script)
+	return p.out
+}
+
 type parser struct {
-	out      []Command
-	words    []string
-	word     strings.Builder
-	inWord   bool
-	skipWord bool // the next word is a redirection target
+	ps        bool
+	out       []Command
+	words     []string
+	redirects []string
+	word      strings.Builder
+	inWord    bool
+	skipWord  bool // the next word is a redirection target
+}
+
+func (p *parser) nested(script string) []Command {
+	if p.ps {
+		return ParsePowerShell(script)
+	}
+	return Parse(script)
 }
 
 func (p *parser) flushWord() {
@@ -60,6 +83,7 @@ func (p *parser) flushWord() {
 	}
 	if p.skipWord {
 		p.skipWord = false
+		p.redirects = append(p.redirects, p.word.String())
 	} else {
 		p.words = append(p.words, p.word.String())
 	}
@@ -70,16 +94,24 @@ func (p *parser) flushWord() {
 func (p *parser) flushCommand() {
 	p.flushWord()
 	if len(p.words) > 0 {
-		p.out = append(p.out, newCommands(p.words)...)
+		cmds := p.newCommands(p.words)
+		for i := range cmds {
+			cmds[i].Redirects = append(cmds[i].Redirects, p.redirects...)
+		}
+		p.out = append(p.out, cmds...)
+	} else if len(p.redirects) > 0 {
+		// A bare redirection such as `> file` still writes the file.
+		p.out = append(p.out, Command{Args: []string{":"}, Redirects: p.redirects})
 	}
 	p.words = nil
+	p.redirects = nil
 }
 
 func (p *parser) parse(s string) {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
-		case c == '\\':
+		case (c == '\\' && !p.ps) || (c == '`' && p.ps):
 			if i+1 < len(s) {
 				i++
 				if s[i] != '\n' {
@@ -102,7 +134,7 @@ func (p *parser) parse(s string) {
 			i = p.substitution(s, i)
 		case c == '`':
 			i = p.backtick(s, i)
-		case c == ' ' || c == '\t':
+		case c == ' ' || c == '\t' || c == '\r':
 			p.flushWord()
 		case c == '#' && !p.inWord:
 			for i < len(s) && s[i] != '\n' {
@@ -110,7 +142,7 @@ func (p *parser) parse(s string) {
 			}
 			p.flushCommand()
 		case c == '>' || c == '<' || (c == '&' && i+1 < len(s) && s[i+1] == '>'):
-			// Redirection: drop a pending fd number ("2>") and the target word.
+			// Redirection: drop a pending fd number ("2>") and keep the target.
 			if p.inWord && isDigits(p.word.String()) {
 				p.word.Reset()
 				p.inWord = false
@@ -118,6 +150,13 @@ func (p *parser) parse(s string) {
 			p.flushWord()
 			for i+1 < len(s) && strings.IndexByte("<>&", s[i+1]) >= 0 {
 				i++
+			}
+			// `2>&1` duplicates a descriptor rather than naming a file.
+			if s[i] == '&' {
+				for i+1 < len(s) && (isDigit(s[i+1]) || s[i+1] == '-') {
+					i++
+				}
+				continue
 			}
 			p.skipWord = true
 		case c == '\n' || c == ';' || c == '&' || c == '|' || c == '(' || c == ')':
@@ -133,16 +172,20 @@ func (p *parser) parse(s string) {
 // doubleQuoted reads a "..." string starting after the opening quote and
 // returns the index of the closing quote.
 func (p *parser) doubleQuoted(s string, i int) int {
+	escape := byte('\\')
+	if p.ps {
+		escape = '`'
+	}
 	for ; i < len(s) && s[i] != '"'; i++ {
 		switch {
-		case s[i] == '\\' && i+1 < len(s) && strings.IndexByte("\"\\$`\n", s[i+1]) >= 0:
+		case s[i] == escape && i+1 < len(s) && (p.ps || strings.IndexByte("\"\\$`\n", s[i+1]) >= 0):
 			i++
 			if s[i] != '\n' {
 				p.word.WriteByte(s[i])
 			}
 		case s[i] == '$' && i+1 < len(s) && s[i+1] == '(':
 			i = p.substitution(s, i)
-		case s[i] == '`':
+		case s[i] == '`' && !p.ps:
 			i = p.backtick(s, i)
 		default:
 			p.word.WriteByte(s[i])
@@ -165,7 +208,7 @@ func (p *parser) substitution(s string, i int) int {
 			}
 		}
 	}
-	p.out = append(p.out, Parse(s[i+2:min(j, len(s))])...)
+	p.out = append(p.out, p.nested(s[i+2:min(j, len(s))])...)
 	p.word.WriteString(s[i:min(j+1, len(s))])
 	p.inWord = true
 	return j
@@ -197,6 +240,7 @@ var keywords = map[string]bool{
 // that take a separate argument.
 var wrappers = map[string]map[string]bool{
 	"sudo":    set("-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"),
+	"doas":    set("-u", "-C"),
 	"env":     set("-u", "-C", "-S"),
 	"time":    {},
 	"nohup":   {},
@@ -204,14 +248,21 @@ var wrappers = map[string]map[string]bool{
 	"command": {},
 	"builtin": {},
 	"nice":    set("-n"),
+	"ionice":  set("-c", "-n", "-p"),
 	"timeout": set("-s", "-k", "--signal", "--kill-after"),
 	"xargs":   set("-n", "-I", "-P", "-d", "-L", "-s", "-E", "-a"),
 	"watch":   set("-n", "-d"),
 }
 
-var shells = set("sh", "bash", "zsh", "dash", "ksh")
+var shells = set("sh", "bash", "zsh", "dash", "ksh", "fish")
 
-func newCommands(words []string) []Command {
+var powershells = set("powershell", "pwsh")
+
+func base(word string) string {
+	return Command{Args: []string{word}}.Program()
+}
+
+func (p *parser) newCommands(words []string) []Command {
 	var env []string
 	for {
 		for len(words) > 0 && keywords[words[0]] {
@@ -224,11 +275,11 @@ func newCommands(words []string) []Command {
 		if len(words) == 0 {
 			return nil
 		}
-		valueFlags, ok := wrappers[path.Base(words[0])]
+		name := base(words[0])
+		valueFlags, ok := wrappers[name]
 		if !ok {
 			break
 		}
-		name := path.Base(words[0])
 		words = words[1:]
 		for len(words) > 0 && strings.HasPrefix(words[0], "-") {
 			if valueFlags[words[0]] && len(words) > 1 {
@@ -241,14 +292,28 @@ func newCommands(words []string) []Command {
 		}
 	}
 
-	if shells[path.Base(words[0])] {
-		if script, ok := shellScript(words[1:]); ok {
-			nested := Parse(script)
-			for i := range nested {
-				nested[i].Env = append(append([]string{}, env...), nested[i].Env...)
-			}
-			return nested
+	var script string
+	var nested []Command
+	switch name := base(words[0]); {
+	case name == "eval" && len(words) > 1:
+		script = strings.Join(words[1:], " ")
+		nested = p.nested(script)
+	case shells[name]:
+		if s, ok := shellScript(words[1:]); ok {
+			nested = Parse(s)
+			script = s
 		}
+	case powershells[name]:
+		if s, ok := powershellScript(words[1:]); ok {
+			nested = ParsePowerShell(s)
+			script = s
+		}
+	}
+	if script != "" {
+		for i := range nested {
+			nested[i].Env = append(append([]string{}, env...), nested[i].Env...)
+		}
+		return nested
 	}
 	return []Command{{Env: env, Args: words}}
 }
@@ -267,12 +332,32 @@ func shellScript(args []string) (string, bool) {
 	return "", false
 }
 
+// powershellScript finds the script passed to `pwsh -Command`. Everything
+// after -Command is the script, as in PowerShell itself.
+func powershellScript(args []string) (string, bool) {
+	for i, a := range args {
+		switch strings.ToLower(a) {
+		case "-c", "-command", "-com", "-comm", "-comma", "-comman":
+			if i+1 < len(args) {
+				return strings.Join(args[i+1:], " "), true
+			}
+			return "", false
+		}
+		if !strings.HasPrefix(a, "-") {
+			return "", false
+		}
+	}
+	return "", false
+}
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
+
 func isDigits(s string) bool {
 	if s == "" {
 		return false
 	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
+	for i := 0; i < len(s); i++ {
+		if !isDigit(s[i]) {
 			return false
 		}
 	}

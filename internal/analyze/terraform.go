@@ -11,11 +11,11 @@ import (
 )
 
 // Terraform flags that take a value, so a following argument is not a plan file.
-var tfValueFlags = set("-var", "-var-file", "-target", "-replace", "-state", "-state-out",
+var tfValueFlags = set("-var", "-var-file", "-target", "-replace", "-exclude", "-state", "-state-out",
 	"-backup", "-lock-timeout", "-parallelism")
 
 // Flags of apply/destroy that also change what plan computes.
-var tfPlanFlags = set("-var", "-var-file", "-target", "-replace", "-refresh", "-refresh-only",
+var tfPlanFlags = set("-var", "-var-file", "-target", "-replace", "-exclude", "-refresh", "-refresh-only",
 	"-parallelism", "-state")
 
 // Resource types whose deletion loses data or cascades to everything inside.
@@ -26,22 +26,23 @@ var tfStateful = set(
 	"aws_redshift_cluster", "aws_docdb_cluster", "aws_neptune_cluster", "aws_opensearch_domain",
 	"aws_elasticsearch_domain", "aws_msk_cluster", "aws_backup_vault", "aws_ecr_repository",
 	"aws_route53_zone", "aws_cognito_user_pool", "aws_kinesis_stream", "aws_sqs_queue",
+	"aws_eks_cluster", "aws_fsx_lustre_file_system", "aws_timestreamwrite_database", "aws_memorydb_cluster",
 	"google_sql_database_instance", "google_sql_database", "google_storage_bucket",
 	"google_compute_disk", "google_bigquery_dataset", "google_bigquery_table",
 	"google_spanner_instance", "google_spanner_database", "google_kms_crypto_key",
 	"google_filestore_instance", "google_redis_instance", "google_dns_managed_zone",
-	"google_project", "google_container_cluster",
+	"google_project", "google_container_cluster", "google_alloydb_cluster", "google_firestore_database",
 	"azurerm_resource_group", "azurerm_storage_account", "azurerm_mssql_database",
 	"azurerm_mssql_server", "azurerm_postgresql_flexible_server", "azurerm_mysql_flexible_server",
 	"azurerm_cosmosdb_account", "azurerm_key_vault", "azurerm_managed_disk", "azurerm_redis_cache",
 	"azurerm_dns_zone", "azurerm_kubernetes_cluster",
 	"kubernetes_namespace", "kubernetes_namespace_v1", "kubernetes_persistent_volume_claim",
-	"kubernetes_persistent_volume_claim_v1", "kubernetes_persistent_volume",
+	"kubernetes_persistent_volume_claim_v1", "kubernetes_persistent_volume", "kubernetes_persistent_volume_v1",
 	"digitalocean_database_cluster", "digitalocean_volume", "digitalocean_spaces_bucket",
-	"cloudflare_zone", "github_repository",
+	"cloudflare_zone", "github_repository", "vault_mount", "mongodbatlas_cluster",
 )
 
-func (a *Analyzer) terraform(ctx context.Context, c shell.Command, dir string) *Finding {
+func (a *Analyzer) terraform(ctx context.Context, c shell.Command, st *state) *Finding {
 	args := c.Args[1:]
 	var global []string
 	for len(args) > 0 && strings.HasPrefix(args[0], "-") {
@@ -53,13 +54,22 @@ func (a *Analyzer) terraform(ctx context.Context, c shell.Command, dir string) *
 	}
 	sub, rest := args[0], args[1:]
 
-	workDir := dir
+	workDir := st.dir
 	for _, g := range global {
 		if v, ok := strings.CutPrefix(g, "-chdir="); ok {
-			workDir = resolve(dir, v)
+			workDir = resolve(st.dir, v)
 		}
 	}
-	ws := tfWorkspace(c.Env, workDir)
+	env := st.envFor(c)
+
+	if sub == "workspace" && len(rest) > 0 && (rest[0] == "select" || rest[0] == "new") {
+		if name := positionals(rest[1:], nil); len(name) > 0 {
+			st.workspaces[workDir] = name[0]
+		}
+		return nil
+	}
+
+	ws := tfWorkspace(env, st, workDir)
 	f := &Finding{
 		Tool:    c.Program(),
 		Command: c.String(),
@@ -69,9 +79,9 @@ func (a *Analyzer) terraform(ctx context.Context, c shell.Command, dir string) *
 
 	switch sub {
 	case "destroy":
-		a.tfPreview(ctx, f, c, dir, global, rest, true)
+		a.tfPreview(ctx, f, c, st.dir, env, global, rest, true)
 	case "apply":
-		a.tfPreview(ctx, f, c, dir, global, rest, hasFlag(rest, "-destroy"))
+		a.tfPreview(ctx, f, c, st.dir, env, global, rest, hasFlag(rest, "-destroy"))
 	case "state":
 		if len(rest) == 0 {
 			return nil
@@ -99,9 +109,57 @@ func (a *Analyzer) terraform(ctx context.Context, c shell.Command, dir string) *
 	return f
 }
 
+// Terragrunt global flags that take a separate value.
+var tgValueFlags = set("--working-dir", "--terragrunt-working-dir", "--config", "--terragrunt-config",
+	"--log-level", "--terragrunt-log-level", "--tf-path", "--terragrunt-tfpath", "--download-dir",
+	"--terragrunt-download-dir", "--iam-assume-role", "--terragrunt-iam-role")
+
+// terragrunt previews single-module commands through terragrunt itself, which
+// passes plan and show through to terraform. run-all commands span many
+// modules and are not previewed.
+func (a *Analyzer) terragrunt(ctx context.Context, c shell.Command, st *state) *Finding {
+	args := c.Args[1:]
+	i := 0
+	for i < len(args) && strings.HasPrefix(args[i], "-") {
+		if tgValueFlags[args[i]] {
+			i++
+		}
+		i++
+	}
+	if i > len(args) {
+		i = len(args)
+	}
+	if i == len(args) {
+		return nil
+	}
+	global, sub, rest := args[:i], args[i], args[i+1:]
+	all := sub == "run-all" || hasFlag(rest, "--all") || sub == "destroy-all" || sub == "apply-all"
+	if sub == "run-all" || sub == "run" {
+		if p := positionals(rest, nil); len(p) > 0 {
+			sub = p[0]
+		}
+	}
+	sub = strings.TrimSuffix(sub, "-all")
+
+	f := &Finding{Tool: "terragrunt", Command: c.String(), Target: "directory " + st.dir, Labels: []string{st.dir}}
+	switch sub {
+	case "destroy", "apply":
+	default:
+		return nil
+	}
+	if all {
+		f.Level = Destroy
+		f.Notes = append(f.Notes, "runs across every module below this directory; blast-radius previews one module at a time, so treating this as destructive")
+		return f
+	}
+	env := st.envFor(c)
+	a.tfPreview(ctx, f, c, st.dir, env, global, rest, sub == "destroy" || hasFlag(rest, "-destroy"))
+	return f
+}
+
 // tfPreview runs `terraform plan` (or `show` for a saved plan file) and fills
 // f with the planned resource changes.
-func (a *Analyzer) tfPreview(ctx context.Context, f *Finding, c shell.Command, dir string, global, args []string, destroy bool) {
+func (a *Analyzer) tfPreview(ctx context.Context, f *Finding, c shell.Command, dir string, env, global, args []string, destroy bool) {
 	tf := c.Args[0]
 	var kept, positional []string
 	for i := 0; i < len(args); i++ {
@@ -140,7 +198,7 @@ func (a *Analyzer) tfPreview(ctx context.Context, f *Finding, c shell.Command, d
 			planArgs = append(planArgs, "-destroy")
 		}
 		planArgs = append(planArgs, kept...)
-		res, err := a.Run(ctx, dir, c.Env, tf, planArgs...)
+		res, err := a.Run(ctx, dir, env, tf, planArgs...)
 		if err != nil || res.ExitCode != 0 {
 			unavailable(f, "terraform plan failed", res, err)
 			return
@@ -148,12 +206,12 @@ func (a *Analyzer) tfPreview(ctx context.Context, f *Finding, c shell.Command, d
 	}
 
 	showArgs := append(append([]string{}, global...), "show", "-json", "-no-color", planFile)
-	res, err := a.Run(ctx, dir, c.Env, tf, showArgs...)
+	res, err := a.Run(ctx, dir, env, tf, showArgs...)
 	if err != nil || res.ExitCode != 0 {
 		unavailable(f, "terraform show failed", res, err)
 		return
 	}
-	if err := applyPlan(f, res.Stdout); err != nil {
+	if err := a.applyPlan(f, res.Stdout); err != nil {
 		unavailable(f, "could not read the plan", Result{}, err)
 	}
 }
@@ -169,7 +227,11 @@ type tfPlan struct {
 	} `json:"resource_changes"`
 }
 
-func applyPlan(f *Finding, data []byte) error {
+func (a *Analyzer) applyPlan(f *Finding, data []byte) error {
+	// terragrunt can print log lines before the JSON document.
+	if i := strings.IndexByte(string(data), '{'); i > 0 {
+		data = data[i:]
+	}
 	var plan tfPlan
 	if err := json.Unmarshal(data, &plan); err != nil {
 		return err
@@ -180,8 +242,7 @@ func applyPlan(f *Finding, data []byte) error {
 			continue
 		}
 		var act string
-		acts := strings.Join(rc.Change.Actions, ",")
-		switch acts {
+		switch strings.Join(rc.Change.Actions, ",") {
 		case "delete":
 			act = ActDestroy
 		case "delete,create", "create,delete":
@@ -195,9 +256,10 @@ func applyPlan(f *Finding, data []byte) error {
 		default:
 			continue // no-op, read
 		}
-		lost := act == ActDestroy || act == ActReplace
-		f.Resources = append(f.Resources, Resource{Action: act, Name: rc.Address, Stateful: lost && tfStateful[rc.Type]})
-		if lost {
+		r := Resource{Action: act, Name: rc.Address}
+		r.Stateful = r.Lost() && a.stateful(rc.Type)
+		f.Resources = append(f.Resources, r)
+		if r.Lost() {
 			f.Level = Destroy
 		} else if f.Level < Change {
 			f.Level = Change
@@ -206,20 +268,16 @@ func applyPlan(f *Finding, data []byte) error {
 	return nil
 }
 
-// tfWorkspace finds the selected workspace the same way terraform does.
-func tfWorkspace(inlineEnv []string, workDir string) string {
-	env := func(key string) string {
-		for i := len(inlineEnv) - 1; i >= 0; i-- {
-			if v, ok := strings.CutPrefix(inlineEnv[i], key+"="); ok {
-				return v
-			}
-		}
-		return os.Getenv(key)
-	}
-	if ws := env("TF_WORKSPACE"); ws != "" {
+// tfWorkspace finds the selected workspace the same way terraform does,
+// including workspaces selected earlier in the same script.
+func tfWorkspace(env []string, st *state, workDir string) string {
+	if ws := lookup(env, "TF_WORKSPACE"); ws != "" {
 		return ws
 	}
-	dataDir := env("TF_DATA_DIR")
+	if ws, ok := st.workspaces[workDir]; ok {
+		return ws
+	}
+	dataDir := lookup(env, "TF_DATA_DIR")
 	if dataDir == "" {
 		dataDir = ".terraform"
 	}

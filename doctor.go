@@ -1,0 +1,228 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/sandeepkomal/blast-radius/internal/analyze"
+	"github.com/sandeepkomal/blast-radius/internal/policy"
+)
+
+type checkList struct {
+	w      io.Writer
+	failed bool
+}
+
+func (c *checkList) ok(format string, a ...any)   { fmt.Fprintf(c.w, "ok    "+format+"\n", a...) }
+func (c *checkList) warn(format string, a ...any) { fmt.Fprintf(c.w, "warn  "+format+"\n", a...) }
+func (c *checkList) info(format string, a ...any) { fmt.Fprintf(c.w, "info  "+format+"\n", a...) }
+func (c *checkList) fail(format string, a ...any) {
+	c.failed = true
+	fmt.Fprintf(c.w, "FAIL  "+format+"\n", a...)
+}
+
+// doctor checks the hook, config and tools, and runs the hook once on known
+// inputs to prove it works on this machine.
+func doctor(stdout io.Writer, run analyze.Runner) int {
+	c := &checkList{w: stdout}
+	exe, _ := os.Executable()
+	c.info("blast-radius %s (%s)", versionString(), exe)
+
+	user, _ := settingsPath(false)
+	project, _ := settingsPath(true)
+	installed := false
+	for _, p := range []string{user, project} {
+		h, err := findOurHook(p)
+		switch {
+		case err != nil:
+			c.fail("%s: %v", p, err)
+		case h == nil:
+			continue
+		default:
+			installed = true
+			checkHook(c, p, h)
+		}
+	}
+	if !installed {
+		c.fail("no blast-radius hook in %s or %s; run `blast-radius install`", user, project)
+	}
+
+	dir, _ := os.Getwd()
+	if cfg, err := policy.Load(dir); err != nil {
+		c.fail("config: %v", err)
+	} else if len(cfg.Sources) == 0 {
+		c.ok("config: built-in default policy")
+	} else {
+		c.ok("config: %s", strings.Join(cfg.Sources, ", "))
+	}
+
+	selfTest(c)
+
+	for _, tool := range []string{"terraform", "tofu", "terragrunt", "kubectl", "helm"} {
+		if p, err := exec.LookPath(tool); err == nil {
+			c.ok("%s found at %s", tool, p)
+		} else {
+			c.info("%s not found (only needed if you use it)", tool)
+		}
+	}
+	if _, err := exec.LookPath("kubectl"); err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if res, err := run(ctx, dir, nil, "kubectl", "config", "current-context"); err == nil && res.ExitCode == 0 {
+			c.info("kube context: %s", strings.TrimSpace(string(res.Stdout)))
+		}
+	}
+
+	if c.failed {
+		return 1
+	}
+	fmt.Fprintln(stdout, "\nAll checks passed.")
+	return 0
+}
+
+func findOurHook(path string) (map[string]any, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var settings struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []any  `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &settings); err != nil {
+		return nil, fmt.Errorf("not valid JSON: %w", err)
+	}
+	for _, e := range settings.Hooks["PreToolUse"] {
+		for _, h := range e.Hooks {
+			if isOurHook(h) {
+				m := h.(map[string]any)
+				m["matcher"] = e.Matcher
+				return m, nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+func checkHook(c *checkList, path string, h map[string]any) {
+	c.ok("hook installed in %s", path)
+	cmd, _ := h["command"].(string)
+	if filepath.IsAbs(cmd) {
+		if _, err := os.Stat(cmd); err != nil {
+			c.fail("hook command %s does not exist; every command will be blocked. Run `blast-radius install` again", cmd)
+		}
+	} else if _, err := exec.LookPath(cmd); err != nil {
+		c.warn("hook command %q is not on PATH here; Claude Code may not find it either", cmd)
+	}
+	if h["onFailure"] != "block" {
+		c.warn("hook does not set onFailure: \"block\", so a crash or timeout lets commands through; run `blast-radius install` to update")
+	}
+	matcher, _ := h["matcher"].(string)
+	for _, tool := range []string{"Bash", "PowerShell", "Edit", "Write"} {
+		if !strings.Contains(matcher, tool) {
+			c.warn("hook matcher %q does not cover %s; run `blast-radius install` to update", matcher, tool)
+		}
+	}
+}
+
+// selfTest runs the hook on inputs with known answers, without touching
+// any real infrastructure.
+func selfTest(c *checkList) {
+	fake := func(context.Context, string, []string, string, ...string) (analyze.Result, error) {
+		return analyze.Result{}, errors.New("not run during doctor")
+	}
+	cases := []struct {
+		name, input, want string
+	}{
+		{"read-only command passes", `{"tool_name":"Bash","tool_input":{"command":"ls -la"},"cwd":"/"}`, ""},
+		{"uninstalling the guard asks", `{"tool_name":"Bash","tool_input":{"command":"blast-radius uninstall"},"cwd":"/"}`, "ask"},
+		{"editing hook settings asks", `{"tool_name":"Edit","tool_input":{"file_path":"/x/.claude/settings.json"},"cwd":"/"}`, "ask"},
+		{"unreadable input asks", `not json`, "ask"},
+	}
+	for _, tc := range cases {
+		var out bytes.Buffer
+		hookClaude(strings.NewReader(tc.input), &out, io.Discard, fake)
+		got := ""
+		if out.Len() > 0 {
+			var o hookOutput
+			if err := json.Unmarshal(out.Bytes(), &o); err != nil {
+				c.fail("self-test %s: bad output %q", tc.name, out.String())
+				continue
+			}
+			got = o.HookSpecificOutput.PermissionDecision
+		}
+		if got != tc.want {
+			c.fail("self-test %s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	c.ok("self-test: hook decisions are correct")
+}
+
+const projectTemplate = `{
+  "$schema": "` + policy.SchemaURL + `",
+  "environments": [
+    { "name": "production", "match": ["*prod*", "*prd*"], "change": "ask", "destroy": "deny" }
+  ],
+  "protect": []
+}
+`
+
+const userTemplate = `{
+  "$schema": "` + policy.SchemaURL + `",
+  "default": { "change": "pass", "destroy": "ask" },
+  "environments": [
+    { "name": "production", "match": ["*prod*", "*prd*"], "change": "ask", "destroy": "deny" },
+    { "name": "sandbox", "match": ["kind-*", "minikube", "docker-desktop"], "destroy": "pass" }
+  ],
+  "protect": [],
+  "preview_timeout_seconds": 90
+}
+`
+
+func initConfig(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	user := fs.Bool("user", false, "write your user config instead of .blast-radius.json in this directory")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	path, content := policy.FileName, projectTemplate
+	if *user {
+		p, err := policy.UserConfigPath()
+		if err != nil {
+			fmt.Fprintln(stderr, "blast-radius:", err)
+			return 1
+		}
+		path, content = p, userTemplate
+	}
+	if _, err := os.Stat(path); err == nil {
+		fmt.Fprintf(stderr, "blast-radius: %s already exists\n", path)
+		return 1
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		fmt.Fprintln(stderr, "blast-radius:", err)
+		return 1
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		fmt.Fprintln(stderr, "blast-radius:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Wrote %s\n", path)
+	return 0
+}

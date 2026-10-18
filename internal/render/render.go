@@ -73,6 +73,9 @@ func Text(findings []analyze.Finding, verdicts []policy.Verdict, color bool) str
 			where += " · environment " + v.Environment
 		}
 		fmt.Fprintf(&b, "   %s · %s\n", s.dim(where), s.verdict(v.Action))
+		if v.Reason != "" {
+			fmt.Fprintf(&b, "   %s\n", s.bold(v.Reason))
+		}
 
 		res := append([]analyze.Resource{}, f.Resources...)
 		sort.SliceStable(res, func(i, j int) bool { return actionOrder[res[i].Action] < actionOrder[res[j].Action] })
@@ -81,8 +84,8 @@ func Text(findings []analyze.Finding, verdicts []policy.Verdict, color bool) str
 		}
 		width := 0
 		for i, r := range res {
-			if i < MaxResources && len(r.Name) > width {
-				width = len(r.Name)
+			if n := len(displayName(r)); i < MaxResources && n > width {
+				width = n
 			}
 		}
 		for i, r := range res {
@@ -90,7 +93,7 @@ func Text(findings []analyze.Finding, verdicts []policy.Verdict, color bool) str
 				fmt.Fprintf(&b, "   %s\n", s.dim(fmt.Sprintf("... and %d more", len(res)-MaxResources)))
 				break
 			}
-			line := fmt.Sprintf("%3s %-7s  %-*s", symbols[r.Action], r.Action, width, r.Name)
+			line := fmt.Sprintf("%3s %-7s  %-*s", symbols[r.Action], r.Action, width, displayName(r))
 			line = s.action(r.Action, line)
 			if r.Stateful {
 				line += "  " + s.bold(s.red("(holds data)"))
@@ -105,6 +108,13 @@ func Text(findings []analyze.Finding, verdicts []policy.Verdict, color bool) str
 		}
 	}
 	return b.String()
+}
+
+func displayName(r analyze.Resource) string {
+	if r.Namespace != "" {
+		return r.Name + " (ns " + r.Namespace + ")"
+	}
+	return r.Name
 }
 
 func counts(res []analyze.Resource) string {
