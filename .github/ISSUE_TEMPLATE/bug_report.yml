@@ -1,0 +1,43 @@
+name: Bug report
+description: blast-radius made the wrong decision, crashed, or got in the way
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If a destructive command got through without approval, please report it privately instead:
+        https://github.com/SandeepKomal/blast-radius/security/advisories/new
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: The exact command or tool call, and the directory it ran in.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: What blast-radius decided
+      description: Output of `blast-radius check --json '<command>'`.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: blast-radius, OS, shell, and the tool involved (terraform, kubectl...).
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: blast-radius doctor
+      render: text

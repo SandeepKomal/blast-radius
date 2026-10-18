@@ -1,22 +1,84 @@
-name: blast-radius
+name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
-      - name: Check formatting
-        run: test -z "$(gofmt -l .)"
+          go-version: stable
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.6
+      - name: Lint e2e tests
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.6
+          args: --build-tags e2e ./e2e/...
+
+  vuln:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: stable
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        go: ["1.24", stable]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
       - run: go vet ./...
-      - run: go test -race ./...
+      - name: Test
+        if: runner.os != 'Windows'
+        run: go test -race -count=1 ./...
+      - name: Test (Windows)
+        if: runner.os == 'Windows'
+        run: go test -count=1 ./...
       - run: go build .
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go test ./internal/shell/ -run '^$' -fuzz FuzzParse -fuzztime 60s
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+      - uses: helm/kind-action@v1
+      - name: End-to-end tests
+        env:
+          BLAST_RADIUS_E2E_KUBE: "1"
+        run: go test -tags e2e -count=1 -v ./e2e/

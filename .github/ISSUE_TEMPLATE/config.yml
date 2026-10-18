@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a bypass privately
+    url: https://github.com/SandeepKomal/blast-radius/security/advisories/new
+    about: A destructive command got through without approval.
