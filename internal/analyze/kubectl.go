@@ -59,6 +59,12 @@ func (a *Analyzer) kubectl(ctx context.Context, c shell.Command, st *state) *Fin
 	}
 	pre, verb, post := args[:verbAt], args[verbAt], args[verbAt+1:]
 	all := append(append([]string{}, pre...), post...)
+	// A context switched to earlier in the script applies to the preview too,
+	// so it looks at the cluster the command will really run against.
+	if st.kubeCtx != "" && verb != "config" && !hasFlag(all, "--context") {
+		pre = append([]string{"--context", st.kubeCtx}, pre...)
+		all = append([]string{"--context", st.kubeCtx}, all...)
+	}
 
 	if verb == "config" {
 		if p := positionals(post, kubeValueFlags); len(p) == 2 && p[0] == "use-context" {
