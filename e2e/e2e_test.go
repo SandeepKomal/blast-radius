@@ -437,3 +437,37 @@ func TestHelm(t *testing.T) {
 		t.Errorf("release changed by checks: %q", out)
 	}
 }
+
+func TestGcloud(t *testing.T) {
+	if _, err := exec.LookPath("gcloud"); err != nil {
+		t.Skip("gcloud not on PATH")
+	}
+	// gcloud writes its configuration to CLOUDSDK_CONFIG; nothing here talks
+	// to Google Cloud.
+	dir := t.TempDir()
+	environ := env(t, "CLOUDSDK_CONFIG="+t.TempDir(), "CLOUDSDK_CORE_DISABLE_PROMPTS=1")
+	run(t, dir, environ, "gcloud", "config", "set", "project", "acme-prod", "--quiet")
+
+	r := check(t, dir, environ, "gcloud sql instances delete orders --quiet")
+	if r.Action != "deny" || r.Findings[0].Target != "project acme-prod" {
+		t.Errorf("delete with a prod project active: %+v", r)
+	}
+	run(t, dir, environ, "gcloud", "config", "configurations", "create", "dev", "--quiet")
+	run(t, dir, environ, "gcloud", "config", "set", "project", "acme-dev", "--quiet")
+	r = check(t, dir, environ, "gcloud sql instances delete orders --quiet")
+	if r.Action != "ask" || r.Findings[0].Target != "project acme-dev" {
+		t.Errorf("delete with a dev configuration active: %+v", r)
+	}
+	r = check(t, dir, environ, "gcloud sql instances delete orders --configuration default")
+	if r.Action != "deny" {
+		t.Errorf("delete with --configuration default: %+v", r)
+	}
+	r = check(t, dir, environ, "gcloud config set project acme-prod && gcloud compute instances delete vm-1 --zone us-east1-b")
+	if r.Action != "deny" {
+		t.Errorf("delete after switching project: %+v", r)
+	}
+	r = check(t, dir, environ, "gcloud compute instances list && gcloud sql instances describe orders")
+	if r.Action != "pass" {
+		t.Errorf("read-only commands: %+v", r)
+	}
+}

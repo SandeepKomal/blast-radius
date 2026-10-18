@@ -13,7 +13,10 @@ All notable changes to this project are documented here. The format follows
   and `helm uninstall`.
 - Recognition of destructive `helm`, `pulumi`, `aws`, `gcloud`, `gsutil` and `az` commands.
 - State tracking across chained commands: `cd`, `export`, `terraform workspace select`,
-  `kubectl config use-context`, `kubectx`, `pulumi stack select`, PowerShell `$env:` assignments.
+  `kubectl config use-context`, `kubectx`, `pulumi stack select`, `gcloud config set project`,
+  `az account set`, PowerShell `$env:` assignments.
+- The active gcloud configuration and default Azure subscription are read from the CLIs' own
+  config files, so production is recognised without flags.
 - Policy with environments, protected resources, extra stateful types and aliases.
   Project config files can only make rules stricter.
 - Self-protection: commands and edits that would switch blast-radius off need approval.
