@@ -1,0 +1,16 @@
+name: Feature request
+description: A tool, command or policy option blast-radius should support
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What should blast-radius catch or do?
+      description: Example commands help a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: preview
+    attributes:
+      label: How could it be previewed?
+      description: Does the tool have a read-only mode (plan, diff, --dry-run) that shows what would change?
