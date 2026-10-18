@@ -193,6 +193,9 @@ func (a *Analyzer) Analyze(ctx context.Context, script, dir string, sh Shell) []
 			f = a.gsutil(c, st)
 		case "az":
 			f = a.az(c, st)
+		case "ssh":
+			findings = append(findings, a.remote(ctx, c, st)...)
+			continue
 		default:
 			if setPowerShellEnv(st, c) {
 				continue
@@ -398,4 +401,41 @@ func set(items ...string) map[string]bool {
 		m[it] = true
 	}
 	return m
+}
+
+// sshValueFlags are the ssh options that take a separate value.
+var sshValueFlags = set("-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m", "-O",
+	"-o", "-p", "-Q", "-R", "-S", "-W", "-w", "-B", "-P")
+
+// remote checks the command an `ssh host command` runs on another machine.
+// Nothing there can be previewed from here, so infrastructure commands are
+// rated as if their preview had failed.
+func (a *Analyzer) remote(ctx context.Context, c shell.Command, st *state) []Finding {
+	args := c.Args[1:]
+	i := 0
+	for i < len(args) && strings.HasPrefix(args[i], "-") {
+		if sshValueFlags[args[i]] {
+			i++
+		}
+		i++
+	}
+	if i+1 >= len(args) {
+		return nil
+	}
+	host, script := args[i], strings.Join(args[i+1:], " ")
+	sub := &Analyzer{Run: noPreview(host), Aliases: a.Aliases, Stateful: a.Stateful}
+	findings := sub.Analyze(ctx, script, st.dir, Bash)
+	for i := range findings {
+		f := &findings[i]
+		f.Command = "ssh " + host + " " + f.Command
+		f.Target = "host " + host + ", " + f.Target
+		f.Labels = append(f.Labels, host)
+	}
+	return findings
+}
+
+func noPreview(host string) Runner {
+	return func(context.Context, string, []string, string, ...string) (Result, error) {
+		return Result{}, errors.New("runs on " + host)
+	}
 }

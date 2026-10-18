@@ -18,7 +18,8 @@ var readOnlyGit = set("diff", "log", "show", "status", "add", "blame", "ls-files
 // protectedPath reports whether p is a file that keeps blast-radius switched
 // on: Claude Code settings, which hold the hook, or blast-radius's own config.
 func protectedPath(p string) bool {
-	p = filepath.ToSlash(strings.Trim(p, `"'`))
+	// Backslashes are path separators in PowerShell and cmd on every OS.
+	p = strings.ReplaceAll(filepath.ToSlash(strings.Trim(p, `"'`)), `\`, "/")
 	switch {
 	case path.Base(p) == ".blast-radius.json":
 		return true

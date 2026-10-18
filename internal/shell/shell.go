@@ -390,6 +390,15 @@ func (p *parser) newCommands(words []string) []Command {
 			nested = ParsePowerShell(s)
 			script = s
 		}
+	case (name == "invoke-expression" || name == "iex") && len(words) > 1:
+		script = strings.Join(words[1:], " ")
+		nested = ParsePowerShell(script)
+	case name == "cmd":
+		// cmd.exe treats backslashes literally, as PowerShell does.
+		if s, ok := cmdScript(words[1:]); ok {
+			nested = ParsePowerShell(s)
+			script = s
+		}
 	}
 	if script != "" {
 		for i := range nested {
@@ -426,6 +435,23 @@ func powershellScript(args []string) (string, bool) {
 			return "", false
 		}
 		if !strings.HasPrefix(a, "-") {
+			return "", false
+		}
+	}
+	return "", false
+}
+
+// cmdScript finds the command passed to `cmd /c` or `cmd /k`.
+func cmdScript(args []string) (string, bool) {
+	for i, a := range args {
+		switch strings.ToLower(a) {
+		case "/c", "/k", "/r":
+			if i+1 < len(args) {
+				return strings.Join(args[i+1:], " "), true
+			}
+			return "", false
+		}
+		if !strings.HasPrefix(a, "/") {
 			return "", false
 		}
 	}

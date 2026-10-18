@@ -569,3 +569,42 @@ func TestAzSubscription(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoteCommands(t *testing.T) {
+	cases := map[string]Level{
+		`ssh deploy@bastion 'terraform destroy -auto-approve'`:     Destroy,
+		`ssh -i key.pem -p 2222 bastion "cd infra && tf apply"`:    Destroy,
+		`ssh bastion kubectl delete ns payments`:                   Destroy,
+		`ssh -o StrictHostKeyChecking=no bastion kubectl get pods`: None,
+		`ssh bastion`:        None,
+		`ssh bastion uptime`: None,
+	}
+	for script, want := range cases {
+		findings, _ := analyze(t, script, nil)
+		got := None
+		for _, f := range findings {
+			if f.Level > got {
+				got = f.Level
+			}
+			if !strings.HasPrefix(f.Target, "host ") {
+				t.Errorf("%s: target %q", script, f.Target)
+			}
+		}
+		if got != want {
+			t.Errorf("%s: level %v, want %v (%+v)", script, got, want, findings)
+		}
+	}
+}
+
+func TestGuardWindowsPaths(t *testing.T) {
+	a := &Analyzer{Run: (&fake{}).run}
+	for _, script := range []string{
+		`Remove-Item .claude\settings.json`,
+		`Set-Content -Path C:\Users\me\.claude\settings.json -Value '{}'`,
+		`del .blast-radius.json`,
+	} {
+		if f := a.Analyze(context.Background(), script, t.TempDir(), PowerShell); len(f) != 1 || !f[0].Guard {
+			t.Errorf("%s: %+v", script, f)
+		}
+	}
+}

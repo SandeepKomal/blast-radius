@@ -171,6 +171,15 @@ func testTerraform(t *testing.T, tf string) {
 		t.Errorf("protected resource: %+v", r)
 	}
 
+	// Planning in a workspace that does not exist must not create it.
+	r = check(t, dir, environ, "TF_WORKSPACE=staging "+tf+" destroy")
+	if r.Action != "pass" {
+		t.Errorf("destroy in an empty workspace: %+v", r)
+	}
+	if out := run(t, dir, environ, tf, "workspace", "list"); strings.Contains(out, "staging") {
+		t.Errorf("check created a workspace:\n%s", out)
+	}
+
 	// Nothing above may have changed real state.
 	for _, ws := range []string{"default", "prod"} {
 		out := run(t, dir, append(environ, "TF_WORKSPACE="+ws), tf, "state", "list")
@@ -469,5 +478,78 @@ func TestGcloud(t *testing.T) {
 	r = check(t, dir, environ, "gcloud compute instances list && gcloud sql instances describe orders")
 	if r.Action != "pass" {
 		t.Errorf("read-only commands: %+v", r)
+	}
+}
+
+// TestEvasion runs commands written in the many ways an agent might phrase
+// them against real state in the default and prod workspaces.
+func TestEvasion(t *testing.T) {
+	tf := terraformBinary(t)
+	environ := env(t)
+	dir := demo(t, tf, environ)
+	bash := map[string]string{
+		tf + ` destroy`:                                     "ask",
+		`TF_WORKSPACE=prod ` + tf + ` destroy`:              "deny",
+		`export TF_WORKSPACE=prod; ` + tf + ` destroy`:      "deny",
+		`env TF_WORKSPACE=prod ` + tf + ` destroy`:          "deny",
+		tf + ` workspace select prod && ` + tf + ` destroy`: "deny",
+		`sudo ` + tf + ` destroy`:                           "ask",
+		`bash -c '` + tf + ` destroy'`:                      "ask",
+		`sh -c "TF_WORKSPACE=prod ` + tf + ` destroy"`:      "deny",
+		`eval ` + tf + ` destroy`:                           "ask",
+		`echo $(` + tf + ` destroy -auto-approve)`:          "ask",
+		`"` + tf + `" "destroy"`:                            "ask",
+		`\` + tf + ` destroy`:                               "ask",
+		`timeout 60 ` + tf + ` destroy`:                     "ask",
+		`nohup ` + tf + ` destroy &`:                        "ask",
+		`true && { ` + tf + ` destroy; }`:                   "ask",
+		tf + " \\\n  destroy":                               "ask",
+		tf + ` apply -destroy`:                              "ask",
+		"bash <<EOF\n" + tf + " destroy\nEOF":               "ask",
+		"cat <<EOF | sh\n" + tf + " destroy\nEOF":           "ask",
+		`ssh bastion '` + tf + ` destroy'`:                  "ask",
+		`blast-radius uninstall`:                            "ask",
+		`echo '{}' > ~/.claude/settings.json`:               "ask",
+		`sed -i 's/x/y/' .claude/settings.json`:             "ask",
+		`mv .blast-radius.json /tmp/`:                       "ask",
+		"cat > notes.md <<'EOF'\n" + tf + " destroy\nEOF":   "pass",
+		`echo ` + tf + ` destroy`:                           "pass",
+		`grep -r "` + tf + ` destroy" .`:                    "pass",
+		`git commit -m "` + tf + ` destroy cleanup"`:        "pass",
+		tf + ` plan -destroy`:                               "pass",
+		`cat .claude/settings.json`:                         "pass",
+		`ssh bastion uptime`:                                "pass",
+	}
+	powershell := map[string]string{
+		`& ` + tf + ` destroy`:                                "ask",
+		`$env:TF_WORKSPACE = 'prod'; ` + tf + ` destroy`:      "deny",
+		`$env:TF_WORKSPACE="prod"; ` + tf + ` destroy`:        "deny",
+		tf + ` destroy -auto-approve | Out-Null`:              "ask",
+		`cmd /c ` + tf + ` destroy`:                           "ask",
+		`Invoke-Expression "` + tf + ` destroy"`:              "ask",
+		`iex '` + tf + ` destroy'`:                            "ask",
+		`pwsh -c ` + tf + ` destroy`:                          "ask",
+		tf + " `\n  destroy":                                  "ask",
+		`Remove-Item .claude\settings.json`:                   "ask",
+		`Set-Content -Path .claude/settings.json -Value '{}'`: "ask",
+		`Write-Output "` + tf + ` destroy"`:                   "pass",
+		`Get-ChildItem; ` + tf + ` state list`:                "pass",
+	}
+	for shell, cases := range map[string]map[string]string{"bash": bash, "powershell": powershell} {
+		for command, want := range cases {
+			cmd := exec.Command(binary, "check", "--json", "--shell", shell, "-C", dir, command)
+			cmd.Env = environ
+			out, _ := cmd.Output()
+			var r result
+			if err := json.Unmarshal(out, &r); err != nil || r.Action != want {
+				t.Errorf("%s %q: got %q, want %q", shell, command, r.Action, want)
+			}
+		}
+	}
+	for _, ws := range []string{"default", "prod"} {
+		out := run(t, dir, append(environ, "TF_WORKSPACE="+ws), tf, "state", "list")
+		if n := strings.Count(strings.TrimSpace(out), "\n") + 1; n != 5 {
+			t.Errorf("workspace %s has %d resources after checks", ws, n)
+		}
 	}
 }
