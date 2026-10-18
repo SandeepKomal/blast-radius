@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -252,7 +253,22 @@ func changeDir(dir string, args []string) string {
 	return resolve(dir, args[0])
 }
 
+// msysDrive turns a Git Bash (MSYS) path such as /c/Users/me into C:/Users/me.
+func msysDrive(p string) (string, bool) {
+	if len(p) < 2 || p[0] != '/' || !isLetter(p[1]) || (len(p) > 2 && p[2] != '/') {
+		return p, false
+	}
+	return strings.ToUpper(p[1:2]) + ":/" + strings.TrimPrefix(p[2:], "/"), true
+}
+
+func isLetter(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') }
+
 func resolve(dir, p string) string {
+	if runtime.GOOS == "windows" {
+		if w, ok := msysDrive(p); ok {
+			p = w
+		}
+	}
 	if p == "~" || strings.HasPrefix(p, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			p = filepath.Join(home, strings.TrimPrefix(p, "~"))
