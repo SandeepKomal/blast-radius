@@ -83,7 +83,8 @@ func TestHook(t *testing.T) {
 		t.Errorf("harmless command: decision %q", d)
 	}
 	d, reason := runHook(t, hookJSON("Bash", "command", "terraform destroy -auto-approve", dev), run)
-	if d != "ask" || !strings.Contains(reason, "aws_db_instance.main") || !strings.Contains(reason, "(holds data)") {
+	if d != "ask" || !strings.Contains(reason, "aws_db_instance.main") || !strings.Contains(reason, "(holds data)") ||
+		!strings.HasPrefix(reason, "WARNING: this deletes ") {
 		t.Errorf("dev destroy: %q\n%s", d, reason)
 	}
 	d, reason = runHook(t, hookJSON("Bash", "command", "terraform destroy -auto-approve", prod), run)
