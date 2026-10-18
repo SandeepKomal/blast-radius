@@ -93,8 +93,9 @@ Out of the box:
 | anywhere | pass | ask |
 | production (`*prod*`, `*prd*`) | ask | deny |
 
-The environment is matched against the Terraform workspace, kube context and namespace, cloud
-profile or project, and working directory. You can add environments, protect specific
+The environment is matched against the Terraform workspace or Pulumi stack, kube context and
+namespace, AWS profile, gcloud project, Azure subscription and resource group, and working
+directory. You can add environments, protect specific
 resources so they are never deleted, mark your own resource types as holding data, and keep an
 audit log:
 

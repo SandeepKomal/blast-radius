@@ -128,7 +128,9 @@ type state struct {
 	kubeCtx    string            // set with kubectl config use-context
 	workspaces map[string]string // terraform working dir -> workspace selected
 	// pulumi project dir -> stack selected
-	pulumiStacks map[string]string
+	pulumiStacks   map[string]string
+	gcloudProject  string // set with gcloud config set project
+	azSubscription string // set with az account set
 }
 
 func (s *state) envFor(c shell.Command) []string {

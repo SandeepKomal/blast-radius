@@ -357,6 +357,7 @@ func TestClassifyOnly(t *testing.T) {
 		`aws ec2 terminate-instances --instance-ids i-1`:                                                Destroy,
 		`aws ec2 terminate-instances --instance-ids i-1 --dry-run`:                                      None,
 		`aws ec2 describe-instances`:                                                                    None,
+		`AWS_DEFAULT_PROFILE=prod aws ec2 terminate-instances --instance-ids i-1`:                       Destroy,
 		`aws lambda update-function-code --function-name f --zip-file fileb://f.zip`:                    Change,
 		`gcloud compute instances delete vm-1 --zone us-east1-b`:                                        Destroy,
 		`gcloud sql instances delete main --project prod`:                                               Destroy,
@@ -522,5 +523,49 @@ func TestKubeContextFromKubeconfig(t *testing.T) {
 	findings, fk := analyzeIn(t, dir, `KUBECONFIG=`+cfg+` helm upgrade shop ./chart`, nil)
 	if f := only(t, findings, fk.calls); f.Target != "context prod-eks" {
 		t.Errorf("target %q", f.Target)
+	}
+}
+
+func TestGcloudProject(t *testing.T) {
+	cfg := t.TempDir()
+	os.MkdirAll(filepath.Join(cfg, "configurations"), 0o755)
+	os.WriteFile(filepath.Join(cfg, "active_config"), []byte("work\n"), 0o644)
+	os.WriteFile(filepath.Join(cfg, "configurations", "config_work"), []byte("[core]\naccount = me@example.com\nproject = acme-prod\n"), 0o644)
+	os.WriteFile(filepath.Join(cfg, "configurations", "config_dev"), []byte("[core]\nproject = acme-dev\n"), 0o644)
+	env := "CLOUDSDK_CONFIG=" + cfg + " "
+	cases := map[string]string{
+		env + `gcloud sql instances delete main`:                                  "project acme-prod",
+		env + `gcloud sql instances delete main --project acme-dev`:               "project acme-dev",
+		env + `gcloud sql instances delete main --configuration dev`:              "project acme-dev",
+		env + `CLOUDSDK_ACTIVE_CONFIG_NAME=dev gcloud sql instances delete main`:  "project acme-dev",
+		`gcloud config set project acme-prod && gcloud sql instances delete main`: "project acme-prod",
+		`CLOUDSDK_CONFIG=/nonexistent gcloud sql instances delete main`:           "project default",
+	}
+	for script, target := range cases {
+		findings, fk := analyze(t, script, nil)
+		if f := only(t, findings, fk.calls); f.Target != target {
+			t.Errorf("%s: target %q, want %q", script, f.Target, target)
+		}
+	}
+}
+
+func TestAzSubscription(t *testing.T) {
+	cfg := t.TempDir()
+	os.WriteFile(filepath.Join(cfg, "azureProfile.json"), []byte("\xef\xbb\xbf"+
+		`{"subscriptions":[{"name":"Contoso Dev","isDefault":false},{"name":"Contoso Production","isDefault":true}]}`), 0o644)
+	env := "AZURE_CONFIG_DIR=" + cfg + " "
+	cases := map[string]string{
+		env + `az vm delete -g web -n vm1 --yes`:                             "subscription Contoso Production, resource group web",
+		env + `az vm delete -g web -n vm1 --subscription dev --yes`:          "subscription dev, resource group web",
+		`az account set --subscription prod && az vm delete -g web -n vm1`:   "subscription prod, resource group web",
+		`az account set -s prod; az storage account delete -n data -g web`:   "subscription prod, resource group web",
+		`AZURE_CONFIG_DIR=/nonexistent az group delete -n prod-rg --yes`:     "subscription default, resource group prod-rg",
+		`AZURE_CONFIG_DIR=/nonexistent az group delete --name prod-rg --yes`: "subscription default, resource group prod-rg",
+	}
+	for script, target := range cases {
+		findings, fk := analyze(t, script, nil)
+		if f := only(t, findings, fk.calls); f.Target != target {
+			t.Errorf("%s: target %q, want %q", script, f.Target, target)
+		}
 	}
 }

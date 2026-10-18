@@ -1,7 +1,12 @@
 package analyze
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/sandeepkomal/blast-radius/internal/shell"
@@ -124,6 +129,9 @@ func (a *Analyzer) aws(c shell.Command, st *state) *Finding {
 		profile = lookup(env, "AWS_PROFILE")
 	}
 	if profile == "" {
+		profile = lookup(env, "AWS_DEFAULT_PROFILE")
+	}
+	if profile == "" {
 		profile = "default"
 	}
 	region, ok := flagValue(args, "--region")
@@ -181,13 +189,11 @@ var (
 func (a *Analyzer) gcloud(c shell.Command, st *state) *Finding {
 	args := c.Args[1:]
 	pos := positionals(args, gcloudValueFlags)
-	project, ok := flagValue(args, "--project")
-	if !ok {
-		project = lookup(st.envFor(c), "CLOUDSDK_CORE_PROJECT")
+	if len(pos) == 4 && pos[0] == "config" && pos[1] == "set" && (pos[2] == "project" || pos[2] == "core/project") {
+		st.gcloudProject = pos[3]
+		return nil
 	}
-	if project == "" {
-		project = "default"
-	}
+	project := gcloudProject(args, st, st.envFor(c))
 	f := cloudFinding("gcloud", c, "project "+project, []string{project, st.dir})
 	if verb, ok := verbIn(pos, gcloudDestroy); ok {
 		f.Level = Destroy
@@ -205,6 +211,77 @@ func (a *Analyzer) gcloud(c shell.Command, st *state) *Finding {
 		return f
 	}
 	return nil
+}
+
+// gcloudProject works out the project a gcloud command runs against:
+// --project, CLOUDSDK_CORE_PROJECT, `gcloud config set project` earlier in
+// the script, or the active gcloud configuration on disk.
+func gcloudProject(args []string, st *state, env []string) string {
+	if v, ok := flagValue(args, "--project"); ok {
+		return v
+	}
+	if v := lookup(env, "CLOUDSDK_CORE_PROJECT"); v != "" {
+		return v
+	}
+	if st.gcloudProject != "" {
+		return st.gcloudProject
+	}
+	dir := lookup(env, "CLOUDSDK_CONFIG")
+	if dir == "" {
+		dir = gcloudConfigDir()
+	}
+	if dir == "" {
+		return "default"
+	}
+	name, ok := flagValue(args, "--configuration")
+	if !ok {
+		name = lookup(env, "CLOUDSDK_ACTIVE_CONFIG_NAME")
+	}
+	if name == "" {
+		b, _ := os.ReadFile(filepath.Join(dir, "active_config"))
+		name = strings.TrimSpace(string(b))
+	}
+	if name == "" {
+		name = "default"
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "configurations", "config_"+name))
+	if err != nil {
+		return "default"
+	}
+	if v := iniValue(string(b), "core", "project"); v != "" {
+		return v
+	}
+	return "default"
+}
+
+func gcloudConfigDir() string {
+	if runtime.GOOS == "windows" {
+		if v := os.Getenv("APPDATA"); v != "" {
+			return filepath.Join(v, "gcloud")
+		}
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "gcloud")
+}
+
+// iniValue returns key from [section] of an INI file.
+func iniValue(text, section, key string) string {
+	in := false
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			in = strings.TrimSpace(line[1:len(line)-1]) == section
+			continue
+		}
+		if k, v, ok := strings.Cut(line, "="); in && ok && strings.TrimSpace(k) == key {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 func (a *Analyzer) gsutil(c shell.Command, st *state) *Finding {
@@ -234,7 +311,7 @@ func (a *Analyzer) gsutil(c shell.Command, st *state) *Finding {
 	return f
 }
 
-var azValueFlags = set("--subscription", "-g", "--resource-group", "-n", "--name", "-o", "--output", "--query", "-l", "--location")
+var azValueFlags = set("--subscription", "-s", "-g", "--resource-group", "-n", "--name", "-o", "--output", "--query", "-l", "--location")
 
 var (
 	azDestroy  = set("delete", "purge", "remove")
@@ -246,13 +323,21 @@ var (
 func (a *Analyzer) az(c shell.Command, st *state) *Finding {
 	args := c.Args[1:]
 	pos := positionals(args, azValueFlags)
-	sub, _ := flagValue(args, "--subscription")
-	if sub == "" {
-		sub = "default"
+	if len(pos) == 2 && pos[0] == "account" && pos[1] == "set" {
+		if v, ok := flagValue(args, "--subscription", "-s"); ok {
+			st.azSubscription = v
+		}
+		return nil
 	}
+	sub := azSubscription(args, st, st.envFor(c))
 	target := "subscription " + sub
 	labels := []string{sub, st.dir}
-	if rg, ok := flagValue(args, "-g", "--resource-group"); ok {
+	rg, ok := flagValue(args, "-g", "--resource-group")
+	if !ok && len(pos) > 0 && pos[0] == "group" {
+		// `az group delete -n prod-rg` names the resource group with -n.
+		rg, ok = flagValue(args, "-n", "--name")
+	}
+	if ok {
 		target += ", resource group " + rg
 		labels = append(labels, rg)
 	}
@@ -277,6 +362,46 @@ func (a *Analyzer) az(c shell.Command, st *state) *Finding {
 		return f
 	}
 	return nil
+}
+
+// azSubscription works out the subscription an az command runs against:
+// --subscription, `az account set` earlier in the script, or the default
+// subscription in the Azure CLI profile on disk.
+func azSubscription(args []string, st *state, env []string) string {
+	if v, ok := flagValue(args, "--subscription"); ok {
+		return v
+	}
+	if st.azSubscription != "" {
+		return st.azSubscription
+	}
+	dir := lookup(env, "AZURE_CONFIG_DIR")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "default"
+		}
+		dir = filepath.Join(home, ".azure")
+	}
+	b, err := os.ReadFile(filepath.Join(dir, "azureProfile.json"))
+	if err != nil {
+		return "default"
+	}
+	var profile struct {
+		Subscriptions []struct {
+			Name      string `json:"name"`
+			IsDefault bool   `json:"isDefault"`
+		} `json:"subscriptions"`
+	}
+	// The Azure CLI writes this file with a byte order mark.
+	if json.Unmarshal(bytes.TrimPrefix(b, []byte("\xef\xbb\xbf")), &profile) != nil {
+		return "default"
+	}
+	for _, s := range profile.Subscriptions {
+		if s.IsDefault && s.Name != "" {
+			return s.Name
+		}
+	}
+	return "default"
 }
 
 func hasPrefix(s string, prefixes []string) bool {
