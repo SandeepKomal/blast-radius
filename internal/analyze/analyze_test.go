@@ -236,10 +236,11 @@ func TestKubectlContextSwitchedEarlierInScript(t *testing.T) {
 		`kubectx prod-eks; k delete pod web`,
 	} {
 		findings, fk := analyze(t, script, map[string]Result{
-			"kubectl get pod web --ignore-not-found -o json": {Stdout: []byte(`{"kind":"Pod","metadata":{"name":"web","namespace":"default"}}`)},
+			"kubectl --context prod-eks get pod web --ignore-not-found -o json": {Stdout: []byte(`{"kind":"Pod","metadata":{"name":"web","namespace":"default"}}`)},
 		})
-		if f := only(t, findings, fk.calls); f.Target != "context prod-eks" {
-			t.Errorf("%s: target %q", script, f.Target)
+		f := only(t, findings, fk.calls)
+		if f.Target != "context prod-eks" || len(f.Resources) != 1 {
+			t.Errorf("%s: target %q, resources %+v, calls %q", script, f.Target, f.Resources, fk.calls)
 		}
 	}
 }
