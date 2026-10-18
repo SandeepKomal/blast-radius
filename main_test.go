@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -228,7 +229,7 @@ func TestUpdateSettings(t *testing.T) {
 			t.Errorf("missing %s in:\n%s", want, s)
 		}
 	}
-	if st, _ := os.Stat(path); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(path); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("file mode changed to %v", st.Mode().Perm())
 	}
 
