@@ -297,29 +297,36 @@ metadata: {name: settings, namespace: br-e2e, labels: {app: br-e2e}}
 data: {LOG_LEVEL: info}
 `
 
-func TestKubernetes(t *testing.T) {
+// kubeSetup returns an environment with a copy of the user's kubeconfig that
+// has an extra "prod-eks" context pointing at the same cluster, so the real
+// kubeconfig is never modified.
+func kubeSetup(t *testing.T) (environ []string, dir, kc, current string) {
+	t.Helper()
 	if os.Getenv("BLAST_RADIUS_E2E_KUBE") != "1" {
 		t.Skip("set BLAST_RADIUS_E2E_KUBE=1 to run against the cluster in KUBECONFIG")
 	}
-	// Work on a copy of the kubeconfig with an extra "prod-eks" context that
-	// points at the same cluster, so the real one is never modified.
 	src := os.Getenv("KUBECONFIG")
 	if src == "" {
 		home, _ := os.UserHomeDir()
 		src = filepath.Join(home, ".kube", "config")
 	}
-	kc := filepath.Join(t.TempDir(), "kubeconfig")
+	kc = filepath.Join(t.TempDir(), "kubeconfig")
 	b, err := os.ReadFile(src)
 	if err != nil {
 		t.Fatal(err)
 	}
 	os.WriteFile(kc, b, 0o600)
-	environ := env(t, "KUBECONFIG="+kc)
-	dir := t.TempDir()
-	current := strings.TrimSpace(run(t, dir, environ, "kubectl", "config", "current-context"))
+	environ = env(t, "KUBECONFIG="+kc)
+	dir = t.TempDir()
+	current = strings.TrimSpace(run(t, dir, environ, "kubectl", "config", "current-context"))
 	cluster := strings.TrimSpace(run(t, dir, environ, "kubectl", "config", "view", "--minify", "-o", "jsonpath={.contexts[0].context.cluster}"))
 	user := strings.TrimSpace(run(t, dir, environ, "kubectl", "config", "view", "--minify", "-o", "jsonpath={.contexts[0].context.user}"))
 	run(t, dir, environ, "kubectl", "config", "set-context", "prod-eks", "--cluster="+cluster, "--user="+user)
+	return environ, dir, kc, current
+}
+
+func TestKubernetes(t *testing.T) {
+	environ, dir, kc, current := kubeSetup(t)
 
 	os.WriteFile(filepath.Join(dir, "shop.yaml"), []byte(shopManifest), 0o644)
 	run(t, dir, environ, "kubectl", "apply", "-f", "shop.yaml")
@@ -366,10 +373,67 @@ func TestKubernetes(t *testing.T) {
 	if r.Action != "pass" {
 		t.Errorf("dry run: %+v", r)
 	}
+	r = check(t, dir, environ, "kubectl scale deploy web -n br-e2e --replicas=0")
+	if r.Action != "ask" {
+		t.Errorf("scale to zero: %+v", r)
+	}
+	r = check(t, dir, environ, "kubectl --context prod-eks scale deploy web -n br-e2e --replicas=0")
+	if r.Action != "deny" {
+		t.Errorf("scale to zero in prod: %+v", r)
+	}
+	r = check(t, dir, environ, "kubectl get pods -A && kubectl describe deploy web -n br-e2e && kubectl rollout status deploy/web -n br-e2e --timeout=1s")
+	if r.Action != "pass" {
+		t.Errorf("read-only commands: %+v", r)
+	}
 
 	// The checks above must not have deleted anything.
 	out := run(t, dir, environ, "kubectl", "get", "pvc,deploy,cm", "-n", "br-e2e", "-l", "app=br-e2e", "-o", "name")
 	if !strings.Contains(out, "persistentvolumeclaim/data") || !strings.Contains(out, "deployment.apps/web") {
 		t.Errorf("objects changed by checks:\n%s", out)
+	}
+}
+
+func TestHelm(t *testing.T) {
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not on PATH")
+	}
+	environ, dir, kc, _ := kubeSetup(t)
+	// `helm create` writes a starter chart locally; no repository is needed.
+	run(t, dir, environ, "helm", "create", "shop")
+	run(t, dir, environ, "helm", "install", "shop", "./shop", "-n", "br-helm", "--create-namespace")
+	t.Cleanup(func() {
+		exec.Command("kubectl", "--kubeconfig", kc, "delete", "ns", "br-helm", "--wait=false").Run()
+	})
+
+	r := check(t, dir, environ, "helm uninstall shop -n br-helm")
+	names := map[string]bool{}
+	for _, res := range r.Findings[0].Resources {
+		names[res.Name] = res.Action == "destroy" && res.Namespace == "br-helm"
+	}
+	if r.Action != "ask" || !names["deployment/shop"] || !names["service/shop"] || !names["serviceaccount/shop"] {
+		t.Errorf("helm uninstall: %+v", r)
+	}
+	r = check(t, dir, environ, "helm uninstall shop -n br-helm --kube-context prod-eks")
+	if r.Action != "deny" || len(r.Findings[0].Resources) < 3 {
+		t.Errorf("helm uninstall in prod: %+v", r)
+	}
+	r = check(t, dir, environ, "kubectl config use-context prod-eks && helm uninstall shop -n br-helm")
+	if r.Action != "deny" {
+		t.Errorf("helm uninstall after switching to prod: %+v", r)
+	}
+	r = check(t, dir, environ, "HELM_KUBECONTEXT=prod-eks helm upgrade shop ./shop -n br-helm")
+	if r.Action != "ask" || r.Findings[0].Verdict.Environment != "production" {
+		t.Errorf("helm upgrade in prod: %+v", r)
+	}
+	r = check(t, dir, environ, "helm uninstall missing -n br-helm")
+	if r.Action != "ask" || !strings.Contains(strings.Join(r.Findings[0].Notes, " "), "no preview") {
+		t.Errorf("helm uninstall of an unknown release: %+v", r)
+	}
+	r = check(t, dir, environ, "helm list -A && helm status shop -n br-helm && helm uninstall shop -n br-helm --dry-run")
+	if r.Action != "pass" {
+		t.Errorf("read-only commands: %+v", r)
+	}
+	if out := run(t, dir, environ, "helm", "list", "-n", "br-helm", "-q"); strings.TrimSpace(out) != "shop" {
+		t.Errorf("release changed by checks: %q", out)
 	}
 }

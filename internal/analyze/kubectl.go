@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -161,13 +162,48 @@ func (a *Analyzer) kubeContext(ctx context.Context, kubectl string, args []strin
 		conn = []string{"--kubeconfig", v}
 	}
 	res, err := a.Run(ctx, st.dir, env, kubectl, append(conn, "config", "current-context")...)
-	if err != nil || res.ExitCode != 0 {
-		return "unknown"
+	if err == nil && res.ExitCode == 0 {
+		if s := strings.TrimSpace(string(res.Stdout)); s != "" {
+			return s
+		}
 	}
-	if s := strings.TrimSpace(string(res.Stdout)); s != "" {
+	// kubectl may not be installed (helm works without it), so read the
+	// kubeconfig ourselves.
+	if s := kubeconfigContext(st, args, env); s != "" {
 		return s
 	}
 	return "unknown"
+}
+
+// kubeconfigContext reads current-context from the kubeconfig files kubectl
+// would use. The first file that sets it wins, as in kubectl.
+func kubeconfigContext(st *state, args, env []string) string {
+	var files []string
+	if v, ok := flagValue(args, "--kubeconfig"); ok {
+		files = []string{resolve(st.dir, v)}
+	} else if v := lookup(env, "KUBECONFIG"); v != "" {
+		for _, p := range filepath.SplitList(v) {
+			if p != "" {
+				files = append(files, resolve(st.dir, p))
+			}
+		}
+	} else if home, err := os.UserHomeDir(); err == nil {
+		files = []string{filepath.Join(home, ".kube", "config")}
+	}
+	for _, file := range files {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if v, ok := strings.CutPrefix(strings.TrimRight(line, "\r"), "current-context:"); ok {
+				if v = unquote(v); v != "" {
+					return v
+				}
+			}
+		}
+	}
+	return ""
 }
 
 type kubeObject struct {

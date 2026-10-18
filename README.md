@@ -72,8 +72,8 @@ Or ask your agent to "tear down the demo infrastructure" and watch the hook step
 | Terraform, OpenTofu | `apply`, `destroy`, `apply -destroy`, `apply <planfile>` | `state rm/push/mv`, `workspace delete`, `taint`, `import`, `force-unlock` |
 | Terragrunt | `apply`, `destroy` in one module | `run-all`/`--all` (treated as destructive) |
 | kubectl, oc | `delete` (every matched object; namespaces include their contents), `apply` incl. `--prune` | `drain`, `scale --replicas=0`, `replace --force`, `rollout restart/undo`, `patch`, `edit`, `create`, `label` |
-| Helm | | `uninstall`, `upgrade`, `install`, `rollback` |
-| Pulumi | | `destroy`, `up`, `stack rm`, `state delete` |
+| Helm | `uninstall` (every object the release owns) | `upgrade`, `install`, `rollback` |
+| Pulumi | | `destroy`, `up`, `stack rm`, `state delete` (rated against the selected stack) |
 | AWS CLI | | `delete-*`, `terminate-*`, `remove-*`, `deregister-*`, `s3 rm/rb`, `s3 sync --delete`, and changes such as `create-*`, `put-*`, `update-*` |
 | gcloud, gsutil | | `delete`, `rm`, `rb`, `rsync -d`, and changes such as `create`, `deploy`, `update` |
 | Azure CLI | | `delete`, `purge`, and changes such as `create`, `update`, `restart` |
@@ -144,7 +144,7 @@ blast-radius guards against mistakes, not against an agent deliberately working 
 - It sees commands the agent runs through the shell. A script it runs (`make deploy`,
   `./teardown.sh`, `python cleanup.py`), a cloud SDK call or a tool it doesn't know isn't
   previewed.
-- Helm, Pulumi and the cloud CLIs are recognised by their verbs, not previewed.
+- `helm upgrade`, Pulumi and the cloud CLIs are recognised by their verbs, not previewed.
 - Terraform previews need an initialised working directory and credentials that can run
   `plan`; without them the command is treated as destructive.
 - Remote Terraform runs that can't save a local plan file (some Terraform Cloud setups) can't be

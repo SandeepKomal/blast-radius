@@ -463,3 +463,64 @@ func TestPulumiStack(t *testing.T) {
 		}
 	}
 }
+
+const helmManifest = `---
+# Source: shop/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: "shop-web"
+  labels:
+    name: not-this
+spec:
+  ports:
+    - name: http
+---
+# Source: shop/templates/pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: shop-data
+  namespace: other
+---
+`
+
+func TestHelmUninstallPreview(t *testing.T) {
+	findings, fk := analyze(t, `helm uninstall shop -n shop --kube-context prod-eks`, map[string]Result{
+		"helm get manifest shop -n shop --kube-context prod-eks": {Stdout: []byte(helmManifest)},
+	})
+	f := only(t, findings, fk.calls)
+	want := []Resource{
+		{Action: ActDestroy, Name: "service/shop-web", Namespace: "shop"},
+		{Action: ActDestroy, Name: "persistentvolumeclaim/shop-data", Namespace: "other", Stateful: true},
+	}
+	if f.Level != Destroy || f.Target != "context prod-eks, namespace shop" || !reflect.DeepEqual(f.Resources, want) {
+		t.Errorf("level %v target %q resources %+v", f.Level, f.Target, f.Resources)
+	}
+}
+
+func TestHelmUninstallWithoutPreview(t *testing.T) {
+	findings, fk := analyze(t, `helm uninstall shop --kube-context c`, nil)
+	f := only(t, findings, fk.calls)
+	if f.Level != Destroy || len(f.Resources) != 1 || !strings.Contains(strings.Join(f.Notes, " "), "no preview") {
+		t.Errorf("level %v resources %+v notes %q", f.Level, f.Resources, f.Notes)
+	}
+}
+
+func TestHelmContext(t *testing.T) {
+	findings, fk := analyze(t, `HELM_KUBECONTEXT=prod-eks helm upgrade shop ./chart`, nil)
+	if f := only(t, findings, fk.calls); f.Target != "context prod-eks" {
+		t.Errorf("target %q", f.Target)
+	}
+}
+
+func TestKubeContextFromKubeconfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config")
+	os.WriteFile(cfg, []byte("apiVersion: v1\r\ncurrent-context: \"prod-eks\"\r\n"), 0o600)
+	// No kubectl answers, as when kubectl is not installed.
+	findings, fk := analyzeIn(t, dir, `KUBECONFIG=`+cfg+` helm upgrade shop ./chart`, nil)
+	if f := only(t, findings, fk.calls); f.Target != "context prod-eks" {
+		t.Errorf("target %q", f.Target)
+	}
+}
