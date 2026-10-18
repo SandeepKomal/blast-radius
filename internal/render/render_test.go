@@ -43,3 +43,15 @@ func TestTextTruncatesLongLists(t *testing.T) {
 		t.Errorf("got:\n%s", got)
 	}
 }
+
+func TestTextShowsNamespaceAndReason(t *testing.T) {
+	f := analyze.Finding{Command: "kubectl delete pvc data -n shop", Target: "context dev", Resources: []analyze.Resource{
+		{Action: analyze.ActDestroy, Name: "persistentvolumeclaim/data", Namespace: "shop", Stateful: true},
+	}}
+	got := Text([]analyze.Finding{f}, []policy.Verdict{{Action: policy.Deny, Reason: "protected resource: shop/persistentvolumeclaim/data"}}, false)
+	for _, want := range []string{"BLOCKED\n   protected resource: shop/persistentvolumeclaim/data\n", "- destroy  persistentvolumeclaim/data (ns shop)  (holds data)"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}

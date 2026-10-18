@@ -1,8 +1,0 @@
-{
-  "default": { "change": "pass", "destroy": "ask" },
-  "environments": [
-    { "name": "production", "match": ["*prod*", "*prd*"], "change": "ask", "destroy": "deny" },
-    { "name": "sandbox", "match": ["kind-*", "minikube", "*sandbox*"], "destroy": "pass" }
-  ],
-  "preview_timeout_seconds": 90
-}

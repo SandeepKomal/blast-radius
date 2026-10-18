@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/sandeepkomal/blast-radius/internal/shell"
 )
@@ -45,16 +46,21 @@ const (
 
 // Resource is one thing the command would touch.
 type Resource struct {
-	Action   string `json:"action"`
-	Name     string `json:"name"`
-	Stateful bool   `json:"stateful,omitempty"` // holds data that is gone once deleted
+	Action    string `json:"action"`
+	Name      string `json:"name"`                // terraform address, or kind/name for Kubernetes
+	Namespace string `json:"namespace,omitempty"` // Kubernetes namespace
+	Stateful  bool   `json:"stateful,omitempty"`  // holds data that is gone once deleted
 }
+
+// Lost reports whether the resource is deleted, including by replacement.
+func (r Resource) Lost() bool { return r.Action == ActDestroy || r.Action == ActReplace }
 
 // Finding describes one risky command.
 type Finding struct {
 	Tool      string     `json:"tool"`
 	Command   string     `json:"command"`
 	Level     Level      `json:"-"`
+	Guard     bool       `json:"guard,omitempty"`  // changes blast-radius's own settings
 	Target    string     `json:"target"`           // e.g. "workspace prod"
 	Labels    []string   `json:"labels,omitempty"` // matched against environment rules
 	Resources []Resource `json:"resources,omitempty"`
@@ -67,16 +73,20 @@ type Result struct {
 	ExitCode       int
 }
 
-// Runner runs a preview command. extraEnv holds VAR=value pairs set inline
-// on the command being analyzed.
-type Runner func(ctx context.Context, dir string, extraEnv []string, name string, args ...string) (Result, error)
+// Runner runs a preview command. env holds VAR=value pairs that the analyzed
+// script sets (inline or with export) on top of the current environment.
+type Runner func(ctx context.Context, dir string, env []string, name string, args ...string) (Result, error)
 
-// ExecRunner runs commands on the local machine.
-func ExecRunner(ctx context.Context, dir string, extraEnv []string, name string, args ...string) (Result, error) {
+// ExecRunner runs commands on the local machine. On timeout it kills the
+// whole process tree, so a hung provider plugin cannot stall the hook.
+func ExecRunner(ctx context.Context, dir string, env []string, name string, args ...string) (Result, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), extraEnv...)
-	cmd.Env = append(cmd.Env, "TF_IN_AUTOMATION=1")
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(cmd.Env, "TF_IN_AUTOMATION=1", "TF_INPUT=0")
+	cmd.Stdin = nil
+	cmd.WaitDelay = 2 * time.Second
+	killProcessGroup(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := cmd.Run()
@@ -95,33 +105,148 @@ func ExecRunner(ctx context.Context, dir string, extraEnv []string, name string,
 // Analyzer inspects shell commands.
 type Analyzer struct {
 	Run Runner
+	// Aliases maps extra program names to the tool they run, e.g. "tf": "terraform".
+	Aliases map[string]string
+	// Stateful lists extra terraform resource types and Kubernetes kinds whose
+	// deletion loses data.
+	Stateful []string
+}
+
+// Shell selects how a command line is parsed.
+type Shell int
+
+const (
+	Bash Shell = iota
+	PowerShell
+)
+
+// state is what earlier commands in the same script changed.
+type state struct {
+	dir        string
+	env        []string          // VAR=value set with export
+	kubeCtx    string            // set with kubectl config use-context
+	workspaces map[string]string // terraform working dir -> workspace selected
+}
+
+func (s *state) envFor(c shell.Command) []string {
+	return append(append([]string{}, s.env...), c.Env...)
+}
+
+// lookup finds key in the script's environment, then the process environment.
+func lookup(env []string, key string) string {
+	for i := len(env) - 1; i >= 0; i-- {
+		if v, ok := strings.CutPrefix(env[i], key+"="); ok {
+			return v
+		}
+	}
+	return os.Getenv(key)
 }
 
 // Analyze returns a finding for every command in script that changes
-// infrastructure. dir is the directory the script runs in.
-func (a *Analyzer) Analyze(ctx context.Context, script, dir string) []Finding {
+// infrastructure or blast-radius's own settings. dir is the directory the
+// script runs in.
+func (a *Analyzer) Analyze(ctx context.Context, script, dir string, sh Shell) []Finding {
+	cmds := shell.Parse(script)
+	if sh == PowerShell {
+		cmds = shell.ParsePowerShell(script)
+	}
+	st := &state{dir: dir, workspaces: map[string]string{}}
 	var findings []Finding
-	for _, c := range shell.Parse(script) {
-		var f *Finding
-		switch c.Program() {
-		case "cd":
-			dir = changeDir(dir, c.Args[1:])
-		case "terraform", "tofu":
-			f = a.terraform(ctx, c, dir)
-		case "kubectl", "oc":
-			f = a.kubectl(ctx, c, dir)
-		case "helm":
-			f = a.helm(ctx, c, dir)
+	for _, c := range cmds {
+		prog := c.Program()
+		if real, ok := a.Aliases[prog]; ok {
+			c.Args = append([]string{real}, c.Args[1:]...)
+			prog = real
 		}
-		if f != nil && f.Level > None {
+		var f *Finding
+		switch prog {
+		case "cd", "pushd", "set-location", "sl", "chdir":
+			st.dir = changeDir(st.dir, c.Args[1:])
+		case "export":
+			st.export(c.Args[1:])
+		case "unset":
+			st.unset(c.Args[1:])
+		case "terraform", "tofu":
+			f = a.terraform(ctx, c, st)
+		case "terragrunt":
+			f = a.terragrunt(ctx, c, st)
+		case "kubectl", "oc":
+			f = a.kubectl(ctx, c, st)
+		case "kubectx":
+			if len(c.Args) == 2 && !strings.HasPrefix(c.Args[1], "-") {
+				st.kubeCtx = c.Args[1]
+			}
+		case "helm":
+			f = a.helm(ctx, c, st)
+		case "pulumi":
+			f = a.pulumi(c, st)
+		case "aws":
+			f = a.aws(c, st)
+		case "gcloud":
+			f = a.gcloud(c, st)
+		case "gsutil":
+			f = a.gsutil(c, st)
+		case "az":
+			f = a.az(c, st)
+		default:
+			if setPowerShellEnv(st, c) {
+				continue
+			}
+		}
+		if f == nil {
+			f = guardCommand(c, prog)
+		}
+		if f != nil && (f.Level > None || f.Guard) {
 			findings = append(findings, *f)
 		}
 	}
 	return findings
 }
 
+// AnalyzeFileEdit checks a file that Claude's Edit or Write tool is about to
+// change.
+func (a *Analyzer) AnalyzeFileEdit(path string) []Finding {
+	if !protectedPath(path) {
+		return nil
+	}
+	return []Finding{guardFinding("edit "+path, "edits a file that keeps blast-radius switched on")}
+}
+
+func (s *state) export(args []string) {
+	for _, a := range args {
+		if k, _, ok := strings.Cut(a, "="); ok && !strings.HasPrefix(a, "-") && k != "" {
+			s.env = append(s.env, a)
+		}
+	}
+}
+
+func (s *state) unset(args []string) {
+	for _, a := range args {
+		s.env = append(s.env, a+"=")
+	}
+}
+
+// setPowerShellEnv handles `$env:NAME = value` and `$env:NAME=value`.
+func setPowerShellEnv(s *state, c shell.Command) bool {
+	name, ok := strings.CutPrefix(c.Args[0], "$env:")
+	if !ok {
+		return false
+	}
+	if k, v, ok := strings.Cut(name, "="); ok {
+		s.env = append(s.env, k+"="+v)
+		return true
+	}
+	if len(c.Args) >= 3 && c.Args[1] == "=" {
+		s.env = append(s.env, name+"="+c.Args[2])
+	}
+	return true
+}
+
 func changeDir(dir string, args []string) string {
-	if len(args) == 0 || strings.HasPrefix(args[0], "-") || strings.Contains(args[0], "$") {
+	for len(args) > 0 && strings.HasPrefix(args[0], "-") {
+		args = args[1:]
+	}
+	if len(args) == 0 || strings.Contains(args[0], "$") {
 		return dir
 	}
 	return resolve(dir, args[0])
@@ -139,14 +264,31 @@ func resolve(dir, p string) string {
 	return filepath.Clean(p)
 }
 
+func (a *Analyzer) stateful(kind string) bool {
+	if tfStateful[kind] || kubeStateful[kind] {
+		return true
+	}
+	for _, s := range a.Stateful {
+		if strings.EqualFold(s, kind) {
+			return true
+		}
+	}
+	return false
+}
+
 // unavailable records that no preview could be made. Without one we cannot
 // rule out deletions, so the command counts as destructive.
 func unavailable(f *Finding, what string, res Result, err error) {
 	msg := what
-	if err != nil {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		msg += ": timed out"
+	case err != nil:
 		msg += ": " + err.Error()
-	} else if line := firstLine(res.Stderr); line != "" {
-		msg += ": " + line
+	default:
+		if line := firstLine(res.Stderr); line != "" {
+			msg += ": " + line
+		}
 	}
 	f.Level = Destroy
 	f.Notes = append(f.Notes, "no preview ("+msg+"), so treating this as destructive")
@@ -157,8 +299,8 @@ func firstLine(b []byte) string {
 		line = strings.TrimSpace(line)
 		line = strings.TrimLeft(line, "│╷╵ ")
 		if line != "" {
-			if len(line) > 200 {
-				line = line[:200] + "..."
+			if r := []rune(line); len(r) > 200 {
+				line = string(r[:200]) + "..."
 			}
 			return line
 		}
@@ -192,6 +334,22 @@ func hasFlag(args []string, names ...string) bool {
 		}
 	}
 	return false
+}
+
+// positionals returns the arguments that are not flags, skipping the values
+// of flags in valueFlags given without "=".
+func positionals(args []string, valueFlags map[string]bool) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		if !strings.HasPrefix(args[i], "-") {
+			out = append(out, args[i])
+			continue
+		}
+		if !strings.Contains(args[i], "=") && valueFlags[args[i]] {
+			i++
+		}
+	}
+	return out
 }
 
 // dropFlags removes flags in boolFlags or valueFlags from args. Flags in

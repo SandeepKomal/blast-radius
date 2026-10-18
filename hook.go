@@ -20,7 +20,9 @@ const denyAdvice = "\nBlocked by blast-radius policy. Do not retry this command 
 type hookInput struct {
 	ToolName  string `json:"tool_name"`
 	ToolInput struct {
-		Command string `json:"command"`
+		Command      string `json:"command"`
+		FilePath     string `json:"file_path"`
+		NotebookPath string `json:"notebook_path"`
 	} `json:"tool_input"`
 	Cwd string `json:"cwd"`
 }
@@ -33,34 +35,67 @@ type hookOutput struct {
 	} `json:"hookSpecificOutput"`
 }
 
-// hookClaude implements a Claude Code PreToolUse hook for the Bash tool.
-// Commands that pass produce no output, so Claude Code's own permission
-// rules apply as usual.
-func hookClaude(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) int {
-	var in hookInput
-	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
-		fmt.Fprintln(stderr, "blast-radius: could not read hook input:", err)
-		return 0
-	}
-	if in.ToolName != "Bash" || in.ToolInput.Command == "" {
-		return 0
-	}
-	dir := in.Cwd
-	if dir == "" {
-		dir, _ = os.Getwd()
-	}
-
-	findings, verdicts, action := evaluate(in.ToolInput.Command, dir, run, stderr)
-	if action == policy.Pass {
-		return 0
-	}
+// writeDecision prints the hook's answer. If that fails the hook exits 1,
+// which Claude Code treats as a hook failure and, with onFailure "block",
+// blocks the action.
+func writeDecision(w io.Writer, action policy.Action, reason string) int {
 	var out hookOutput
 	out.HookSpecificOutput.HookEventName = "PreToolUse"
 	out.HookSpecificOutput.PermissionDecision = string(action)
-	out.HookSpecificOutput.PermissionDecisionReason = render.Text(findings, verdicts, false)
-	if action == policy.Deny {
-		out.HookSpecificOutput.PermissionDecisionReason += denyAdvice
+	out.HookSpecificOutput.PermissionDecisionReason = reason
+	if err := json.NewEncoder(w).Encode(out); err != nil {
+		return 1
 	}
-	json.NewEncoder(stdout).Encode(out)
 	return 0
+}
+
+// hookClaude implements a Claude Code PreToolUse hook for shell commands
+// (Bash, PowerShell) and file edits (Edit, Write). Commands that pass produce
+// no output, so Claude Code's own permission rules apply as usual. Anything
+// that goes wrong ends in "ask", never in a silent pass.
+func hookClaude(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (code int) {
+	defer func() {
+		if r := recover(); r != nil {
+			code = writeDecision(stdout, policy.Ask, fmt.Sprintf(
+				"blast-radius hit an internal error (%v) and could not check this command. Review it yourself before approving.", r))
+		}
+	}()
+
+	var in hookInput
+	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
+		return writeDecision(stdout, policy.Ask, "blast-radius could not read the hook input ("+err.Error()+"). Review this action yourself before approving.")
+	}
+	req := request{tool: in.ToolName, dir: in.Cwd}
+	if req.dir == "" {
+		req.dir, _ = os.Getwd()
+	}
+	switch in.ToolName {
+	case "Bash":
+		req.script = in.ToolInput.Command
+	case "PowerShell":
+		req.script, req.shell = in.ToolInput.Command, analyze.PowerShell
+	case "Edit", "Write", "MultiEdit", "NotebookEdit":
+		req.editPath = in.ToolInput.FilePath
+		if req.editPath == "" {
+			req.editPath = in.ToolInput.NotebookPath
+		}
+		if req.editPath == "" {
+			return 0
+		}
+	default:
+		return 0
+	}
+	if req.script == "" && req.editPath == "" {
+		return 0
+	}
+
+	findings, verdicts, action := evaluate(req, run, stderr)
+	if action == policy.Pass {
+		return 0
+	}
+	reason := render.Text(findings, verdicts, false)
+	if action == policy.Deny {
+		reason += denyAdvice
+	}
+	return writeDecision(stdout, action, reason)
 }
