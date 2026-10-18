@@ -520,7 +520,7 @@ func TestKubeContextFromKubeconfig(t *testing.T) {
 	cfg := filepath.Join(dir, "config")
 	os.WriteFile(cfg, []byte("apiVersion: v1\r\ncurrent-context: \"prod-eks\"\r\n"), 0o600)
 	// No kubectl answers, as when kubectl is not installed.
-	findings, fk := analyzeIn(t, dir, `KUBECONFIG=`+cfg+` helm upgrade shop ./chart`, nil)
+	findings, fk := analyzeIn(t, dir, `KUBECONFIG=`+filepath.ToSlash(cfg)+` helm upgrade shop ./chart`, nil)
 	if f := only(t, findings, fk.calls); f.Target != "context prod-eks" {
 		t.Errorf("target %q", f.Target)
 	}
@@ -532,7 +532,7 @@ func TestGcloudProject(t *testing.T) {
 	os.WriteFile(filepath.Join(cfg, "active_config"), []byte("work\n"), 0o644)
 	os.WriteFile(filepath.Join(cfg, "configurations", "config_work"), []byte("[core]\naccount = me@example.com\nproject = acme-prod\n"), 0o644)
 	os.WriteFile(filepath.Join(cfg, "configurations", "config_dev"), []byte("[core]\nproject = acme-dev\n"), 0o644)
-	env := "CLOUDSDK_CONFIG=" + cfg + " "
+	env := "CLOUDSDK_CONFIG=" + filepath.ToSlash(cfg) + " "
 	cases := map[string]string{
 		env + `gcloud sql instances delete main`:                                  "project acme-prod",
 		env + `gcloud sql instances delete main --project acme-dev`:               "project acme-dev",
@@ -553,7 +553,7 @@ func TestAzSubscription(t *testing.T) {
 	cfg := t.TempDir()
 	os.WriteFile(filepath.Join(cfg, "azureProfile.json"), []byte("\xef\xbb\xbf"+
 		`{"subscriptions":[{"name":"Contoso Dev","isDefault":false},{"name":"Contoso Production","isDefault":true}]}`), 0o644)
-	env := "AZURE_CONFIG_DIR=" + cfg + " "
+	env := "AZURE_CONFIG_DIR=" + filepath.ToSlash(cfg) + " "
 	cases := map[string]string{
 		env + `az vm delete -g web -n vm1 --yes`:                             "subscription Contoso Production, resource group web",
 		env + `az vm delete -g web -n vm1 --subscription dev --yes`:          "subscription dev, resource group web",
