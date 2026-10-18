@@ -424,3 +424,18 @@ func TestGuard(t *testing.T) {
 		t.Error("AnalyzeFileEdit mismatch")
 	}
 }
+
+func TestMsysDrive(t *testing.T) {
+	for in, want := range map[string]string{
+		"/c/Users/mnflo/infra": "C:/Users/mnflo/infra",
+		"/d":                   "D:/",
+		"/c/":                  "C:/",
+		"/usr/local/bin":       "/usr/local/bin",
+		"/cd/x":                "/cd/x",
+		"relative/path":        "relative/path",
+	} {
+		if got, _ := msysDrive(in); got != want {
+			t.Errorf("msysDrive(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
