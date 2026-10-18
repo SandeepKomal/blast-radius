@@ -127,6 +127,8 @@ type state struct {
 	env        []string          // VAR=value set with export
 	kubeCtx    string            // set with kubectl config use-context
 	workspaces map[string]string // terraform working dir -> workspace selected
+	// pulumi project dir -> stack selected
+	pulumiStacks map[string]string
 }
 
 func (s *state) envFor(c shell.Command) []string {
@@ -151,7 +153,7 @@ func (a *Analyzer) Analyze(ctx context.Context, script, dir string, sh Shell) []
 	if sh == PowerShell {
 		cmds = shell.ParsePowerShell(script)
 	}
-	st := &state{dir: dir, workspaces: map[string]string{}}
+	st := &state{dir: dir, workspaces: map[string]string{}, pulumiStacks: map[string]string{}}
 	var findings []Finding
 	for _, c := range cmds {
 		prog := c.Program()
@@ -180,7 +182,7 @@ func (a *Analyzer) Analyze(ctx context.Context, script, dir string, sh Shell) []
 		case "helm":
 			f = a.helm(ctx, c, st)
 		case "pulumi":
-			f = a.pulumi(c, st)
+			f = a.pulumi(ctx, c, st)
 		case "aws":
 			f = a.aws(c, st)
 		case "gcloud":

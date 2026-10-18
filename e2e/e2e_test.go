@@ -100,15 +100,21 @@ func run(t *testing.T, dir string, environ []string, name string, args ...string
 	return string(out)
 }
 
-func terraformBinary(t *testing.T) string {
+// terraformBinaries returns terraform and tofu, whichever are on PATH.
+func terraformBinaries(t *testing.T) []string {
+	var found []string
 	for _, name := range []string{"terraform", "tofu"} {
 		if _, err := exec.LookPath(name); err == nil {
-			return name
+			found = append(found, name)
 		}
 	}
-	t.Skip("terraform or tofu not on PATH")
-	return ""
+	if len(found) == 0 {
+		t.Skip("terraform or tofu not on PATH")
+	}
+	return found
 }
+
+func terraformBinary(t *testing.T) string { return terraformBinaries(t)[0] }
 
 // demo copies examples/demo and applies it in the default and prod workspaces.
 func demo(t *testing.T, tf string, environ []string) string {
@@ -125,7 +131,12 @@ func demo(t *testing.T, tf string, environ []string) string {
 }
 
 func TestTerraform(t *testing.T) {
-	tf := terraformBinary(t)
+	for _, tf := range terraformBinaries(t) {
+		t.Run(tf, func(t *testing.T) { testTerraform(t, tf) })
+	}
+}
+
+func testTerraform(t *testing.T, tf string) {
 	environ := env(t)
 	dir := demo(t, tf, environ)
 
@@ -166,6 +177,72 @@ func TestTerraform(t *testing.T) {
 		if n := strings.Count(strings.TrimSpace(out), "\n") + 1; n != 5 {
 			t.Errorf("workspace %s has %d resources after checks:\n%s", ws, n, out)
 		}
+	}
+}
+
+func TestTerragrunt(t *testing.T) {
+	if _, err := exec.LookPath("terragrunt"); err != nil {
+		t.Skip("terragrunt not on PATH")
+	}
+	tf := terraformBinary(t)
+	environ := env(t, "TERRAGRUNT_TFPATH="+tf, "TG_TF_PATH="+tf)
+	dir := demo(t, tf, environ)
+	os.WriteFile(filepath.Join(dir, "terragrunt.hcl"), nil, 0o644)
+
+	r := check(t, dir, environ, "terragrunt destroy -auto-approve")
+	if r.Action != "ask" || len(r.Findings) != 1 || len(r.Findings[0].Resources) != 5 {
+		t.Errorf("terragrunt destroy: %+v", r)
+	}
+	r = check(t, dir, environ, "terragrunt apply -auto-approve")
+	if r.Action != "pass" {
+		t.Errorf("terragrunt no-op apply: %+v", r)
+	}
+	r = check(t, dir, environ, "terragrunt run-all destroy")
+	if r.Action != "ask" || r.Findings[0].Level != "destroy" {
+		t.Errorf("terragrunt run-all destroy: %+v", r)
+	}
+	r = check(t, t.TempDir(), environ, "cd "+dir+" && terragrunt destroy")
+	if r.Action != "ask" {
+		t.Errorf("terragrunt destroy after cd: %+v", r)
+	}
+	out := run(t, dir, environ, tf, "state", "list")
+	if n := strings.Count(strings.TrimSpace(out), "\n") + 1; n != 5 {
+		t.Errorf("state has %d resources after checks:\n%s", n, out)
+	}
+}
+
+func TestPulumi(t *testing.T) {
+	if _, err := exec.LookPath("pulumi"); err != nil {
+		t.Skip("pulumi not on PATH")
+	}
+	// A local file backend and a YAML project need no account or plugins.
+	dir := t.TempDir()
+	environ := env(t, "PULUMI_BACKEND_URL=file://"+filepath.ToSlash(t.TempDir()), "PULUMI_CONFIG_PASSPHRASE=e2e",
+		"PULUMI_SKIP_UPDATE_CHECK=true")
+	os.WriteFile(filepath.Join(dir, "Pulumi.yaml"), []byte("name: demo\nruntime: yaml\n"), 0o644)
+	run(t, dir, environ, "pulumi", "stack", "init", "dev", "--non-interactive")
+	run(t, dir, environ, "pulumi", "stack", "init", "prod", "--non-interactive")
+
+	r := check(t, dir, environ, "pulumi destroy --yes")
+	if r.Action != "deny" || r.Findings[0].Target != "stack prod" {
+		t.Errorf("destroy with prod selected: %+v", r)
+	}
+	r = check(t, dir, environ, "pulumi stack select dev && pulumi destroy --yes")
+	if r.Action != "ask" || r.Findings[0].Target != "stack dev" {
+		t.Errorf("destroy after selecting dev: %+v", r)
+	}
+	run(t, dir, environ, "pulumi", "stack", "select", "dev")
+	r = check(t, dir, environ, "pulumi destroy --yes")
+	if r.Action != "ask" || r.Findings[0].Target != "stack dev" {
+		t.Errorf("destroy with dev selected: %+v", r)
+	}
+	r = check(t, dir, environ, "pulumi stack rm prod --yes")
+	if r.Action != "deny" || r.Findings[0].Target != "stack prod" {
+		t.Errorf("stack rm: %+v", r)
+	}
+	r = check(t, dir, environ, "pulumi preview && pulumi stack ls")
+	if r.Action != "pass" {
+		t.Errorf("read-only commands: %+v", r)
 	}
 }
 

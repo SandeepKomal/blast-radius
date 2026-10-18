@@ -440,3 +440,26 @@ func TestMsysDrive(t *testing.T) {
 		}
 	}
 }
+
+func TestPulumiStack(t *testing.T) {
+	selected := map[string]Result{"pulumi stack --show-name --non-interactive": {Stdout: []byte("prod\n")}}
+	cases := []struct {
+		script  string
+		answers map[string]Result
+		target  string
+	}{
+		{`pulumi destroy --yes`, selected, "stack prod"},
+		{`pulumi destroy --yes -s dev`, selected, "stack dev"},
+		{`PULUMI_STACK=dev pulumi destroy`, selected, "stack dev"},
+		{`pulumi stack select prod && pulumi destroy --yes`, nil, "stack prod"},
+		{`pulumi stack select --stack prod; pulumi destroy`, nil, "stack prod"},
+		{`pulumi destroy`, nil, "stack unknown"},
+		{`pulumi stack rm prod --yes -s dev`, nil, "stack prod"},
+	}
+	for _, c := range cases {
+		findings, fk := analyze(t, c.script, c.answers)
+		if f := only(t, findings, fk.calls); f.Target != c.target || f.Level != Destroy {
+			t.Errorf("%s: target %q level %v", c.script, f.Target, f.Level)
+		}
+	}
+}

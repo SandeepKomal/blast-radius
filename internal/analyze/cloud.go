@@ -1,6 +1,7 @@
 package analyze
 
 import (
+	"context"
 	"strings"
 
 	"github.com/sandeepkomal/blast-radius/internal/shell"
@@ -24,20 +25,34 @@ func noUndo(f *Finding, tool string) {
 	f.Notes = append(f.Notes, tool+" has no preview; this takes effect immediately and can't be undone")
 }
 
-func (a *Analyzer) pulumi(c shell.Command, st *state) *Finding {
+var pulumiValueFlags = set("-s", "--stack", "-C", "--cwd", "--config-file", "-m", "--message", "--parallel", "-p")
+
+func (a *Analyzer) pulumi(ctx context.Context, c shell.Command, st *state) *Finding {
 	args := c.Args[1:]
-	pos := positionals(args, set("-s", "--stack", "-C", "--cwd", "--config-file", "-m", "--message", "--parallel", "-p"))
+	pos := positionals(args, pulumiValueFlags)
 	if len(pos) == 0 || hasFlag(args, "--preview-only") {
 		return nil
 	}
-	stack, ok := flagValue(args, "-s", "--stack")
-	if !ok {
-		stack = lookup(st.envFor(c), "PULUMI_STACK")
+	dir := st.dir
+	if v, ok := flagValue(args, "-C", "--cwd"); ok {
+		dir = resolve(st.dir, v)
 	}
-	if stack == "" {
-		stack = "current"
+	// `stack select` and `stack init` change the stack later commands use.
+	if len(pos) == 3 && pos[0] == "stack" && (pos[1] == "select" || pos[1] == "init") {
+		st.pulumiStacks[dir] = pos[2]
+		return nil
 	}
-	f := cloudFinding("pulumi", c, "stack "+stack, []string{stack, st.dir})
+	if len(pos) == 2 && pos[0] == "stack" && (pos[1] == "select" || pos[1] == "init") {
+		if v, ok := flagValue(args, "-s", "--stack"); ok {
+			st.pulumiStacks[dir] = v
+		}
+		return nil
+	}
+	stack := a.pulumiStack(ctx, c, st, dir)
+	if len(pos) == 3 && pos[0] == "stack" && pos[1] == "rm" {
+		stack = pos[2] // the stack being removed, not the selected one
+	}
+	f := cloudFinding("pulumi", c, "stack "+stack, []string{stack, dir})
 	switch {
 	case pos[0] == "destroy":
 		f.Level = Destroy
@@ -57,6 +72,29 @@ func (a *Analyzer) pulumi(c shell.Command, st *state) *Finding {
 		return nil
 	}
 	return f
+}
+
+// pulumiStack works out which stack a command runs against: --stack,
+// PULUMI_STACK, a stack selected earlier in the script, or the stack Pulumi
+// has selected for the project.
+func (a *Analyzer) pulumiStack(ctx context.Context, c shell.Command, st *state, dir string) string {
+	if v, ok := flagValue(c.Args[1:], "-s", "--stack"); ok {
+		return v
+	}
+	env := st.envFor(c)
+	if v := lookup(env, "PULUMI_STACK"); v != "" {
+		return v
+	}
+	if v, ok := st.pulumiStacks[dir]; ok {
+		return v
+	}
+	res, err := a.Run(ctx, dir, env, c.Args[0], "stack", "--show-name", "--non-interactive")
+	if err == nil && res.ExitCode == 0 {
+		if v := strings.TrimSpace(string(res.Stdout)); v != "" {
+			return v
+		}
+	}
+	return "unknown"
 }
 
 var awsValueFlags = set("--profile", "--region", "--output", "--endpoint-url", "--query", "--color",
