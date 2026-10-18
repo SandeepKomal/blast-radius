@@ -306,3 +306,22 @@ func TestInit(t *testing.T) {
 		t.Errorf("user template does not parse: %v", err)
 	}
 }
+
+func TestParseVersion(t *testing.T) {
+	cases := map[string][3]int{
+		"2.1.302 (Claude Code)\n": {2, 1, 302},
+		"claude v2.1.295":         {2, 1, 295},
+		"1.0.0-beta.1":            {1, 0, 0},
+	}
+	for in, want := range cases {
+		if got, ok := parseVersion(in); !ok || got != want {
+			t.Errorf("parseVersion(%q) = %v, %v", in, got, ok)
+		}
+	}
+	if _, ok := parseVersion("unknown"); ok {
+		t.Error("parsed a version from text without one")
+	}
+	if !lessVersion([3]int{2, 1, 278}, minClaudeVersion) || lessVersion([3]int{2, 1, 302}, minClaudeVersion) || lessVersion(minClaudeVersion, minClaudeVersion) {
+		t.Error("lessVersion")
+	}
+}
