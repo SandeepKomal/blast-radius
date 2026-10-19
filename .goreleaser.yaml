@@ -21,9 +21,6 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Release notes come from CHANGELOG.md (see .github/workflows/release.yml).
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
+  disable: true
