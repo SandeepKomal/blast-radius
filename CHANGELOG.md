@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-19
+
+First release.
+
 ### Added
 
 - Claude Code PreToolUse hook for Bash, PowerShell and file edits.
@@ -25,3 +29,6 @@ All notable changes to this project are documented here. The format follows
   is too old for fail-closed hooks, or when the hook runs a different blast-radius binary.
 - Fail-closed behaviour: hook errors, timeouts, bad input and config errors never pass.
 - Release archives for Linux, macOS and Windows with signed build provenance.
+
+[Unreleased]: https://github.com/SandeepKomal/blast-radius/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/SandeepKomal/blast-radius/releases/tag/v0.1.0
