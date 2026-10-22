@@ -2,7 +2,8 @@ import Link from "next/link";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { UrlBox } from "@/components/UrlBox";
 
-const EXAMPLES = ["facebook/react", "vercel/next.js", "golang/go", "rust-lang/rust", "sandeepkomal/blast-radius"];
+const REPO_EXAMPLES = ["facebook/react", "vercel/next.js", "golang/go"];
+const PR_EXAMPLES = ["sandeepkomal/blast-radius/pull/1"];
 
 export default function Home() {
   return (
@@ -11,10 +12,10 @@ export default function Home() {
       <main>
         <section className="hero wrap">
           <div className="eyebrow gradient-text">gitblast</div>
-          <h1>See what a pull request really touches.</h1>
+          <h1>Change one word. See your code differently.</h1>
           <p className="lede">
-            Change one word in any GitHub link. Get the blast radius of a pull request, or watch a repository grow from
-            its first commit.
+            Swap github for gitblast in any link. Two tools, no install and no sign-in: the blast radius of a pull
+            request, and a time-lapse of how a repository grew.
           </p>
 
           <div className="swap" aria-label="Replace github with gitblast in the address">
@@ -26,26 +27,17 @@ export default function Home() {
               </span>
             </span>
             <span className="faint">.com/</span>
-            <span>owner/repo/pull/123</span>
+            <span>owner/repo</span>
           </div>
 
-          <div className="hero-input">
-            <UrlBox autoFocus />
-            <div className="examples">
-              {EXAMPLES.map((e) => (
-                <Link key={e} href={`/${e}`}>
-                  {e}
-                </Link>
-              ))}
-            </div>
-          </div>
+          <Tools />
         </section>
 
         <section className="band band-alt">
           <div className="wrap">
             <div className="band-head">
-              <h2>Two ways to see a repository.</h2>
-              <p>Both work on any public repository, with nothing to install and no sign-in.</p>
+              <h2>What each tool shows you.</h2>
+              <p>Both work on any public repository and read the code itself, so every result can be traced back.</p>
             </div>
             <div className="features">
               <article className="card feature">
@@ -102,18 +94,80 @@ export default function Home() {
 
         <section className="band band-alt closing">
           <div className="wrap">
-            <div className="band-head" style={{ marginBottom: 32 }}>
+            <div className="band-head" style={{ marginBottom: 40 }}>
               <h2>Try it on any repository.</h2>
-              <p>Paste a link, or just change github to gitblast in your address bar.</p>
+              <p>Paste a link below, or just change github to gitblast in your address bar.</p>
             </div>
-            <div className="hero-input">
-              <UrlBox />
-            </div>
+            <Tools compact />
           </div>
         </section>
       </main>
       <SiteFooter />
     </>
+  );
+}
+
+/** The two tools side by side, each with its own search box. */
+function Tools({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className={`tools${compact ? " tools-compact" : ""}`}>
+      <div className="card tool">
+        <div className="tool-icon" style={{ background: "var(--blast)" }} aria-hidden="true">
+          <BlastIcon />
+        </div>
+        <h2>Blast radius</h2>
+        <p>For a pull request: what it changes, what imports the changed code and what to review first.</p>
+        <UrlBox mode="pr" placeholder="github.com/owner/repo/pull/123" cta="Show blast radius" />
+        {!compact && (
+          <div className="examples">
+            <span className="faint">Try</span>
+            {PR_EXAMPLES.map((e) => (
+              <Link key={e} href={`/${e}`}>
+                {e.replace("/pull/", "#")}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="card tool">
+        <div className="tool-icon" style={{ background: "linear-gradient(135deg, #40c8e0, #0a84ff 55%, #5e5ce6)" }} aria-hidden="true">
+          <TimelapseIcon />
+        </div>
+        <h2>Time-lapse</h2>
+        <p>For a repository: watch it grow from the first commit to today, folder by folder.</p>
+        <UrlBox mode="repo" placeholder="github.com/owner/repo" cta="Play time-lapse" />
+        {!compact && (
+          <div className="examples">
+            <span className="faint">Try</span>
+            {REPO_EXAMPLES.map((e) => (
+              <Link key={e} href={`/${e}`}>
+                {e}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BlastIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#fff" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="3" fill="#fff" stroke="none" />
+      <circle cx="12" cy="12" r="6.5" strokeOpacity="0.8" />
+      <circle cx="12" cy="12" r="10" strokeOpacity="0.45" />
+    </svg>
+  );
+}
+
+function TimelapseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="#fff">
+      <circle cx="5" cy="15" r="2" fillOpacity="0.6" />
+      <circle cx="11" cy="13" r="3.2" fillOpacity="0.8" />
+      <circle cx="18.5" cy="10.5" r="4.5" />
+    </svg>
   );
 }
 

@@ -487,7 +487,8 @@ main.alt {
 /* ---------- landing ---------- */
 
 .hero {
-  padding: 110px 0 90px;
+  padding-top: 110px;
+  padding-bottom: 90px;
   text-align: center;
 }
 
@@ -572,18 +573,72 @@ main.alt {
   100% { opacity: 0; }
 }
 
-.hero-input {
-  max-width: 620px;
+.tools {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  max-width: 1000px;
   margin: 0 auto;
+  text-align: left;
 }
 
-.hero-links {
+@media (max-width: 860px) {
+  .tools {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .tool {
+    padding: 24px 20px;
+  }
+}
+
+.tool {
+  padding: 30px 30px 28px;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px 32px;
-  margin-top: 26px;
-  font-size: 17px;
+  flex-direction: column;
+  box-shadow: 0 0 0 1px var(--line-soft), var(--shadow);
+}
+
+.tool h2 {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 18px 0 6px;
+}
+
+.tool p {
+  color: var(--muted);
+  margin: 0 0 22px;
+  flex: 1;
+}
+
+.tool .urlbox input {
+  font-size: 15px;
+}
+
+.tool .btn {
+  font-size: 14px;
+  padding: 9px 16px;
+}
+
+.tool .examples {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.tool-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+}
+
+.tools-compact .tool h2 {
+  font-size: 24px;
 }
 
 .examples {
@@ -742,8 +797,8 @@ main.alt {
   text-align: center;
 }
 
-.closing .hero-input {
-  margin-top: 8px;
+.band-alt .tool {
+  box-shadow: var(--shadow);
 }
 
 /* ---------- report pages ---------- */
