@@ -15,6 +15,8 @@ export const STATE_COLOR: Record<NonNullable<MapNode["state"]>, string> = {
   ripple3: "var(--ripple3)",
 };
 
+const STATES = Object.keys(STATE_COLOR) as NonNullable<MapNode["state"]>[];
+
 const STATE_LABEL: Record<NonNullable<MapNode["state"]>, string> = {
   changed: "Changed in this PR",
   added: "Added in this PR",
@@ -115,6 +117,15 @@ export function PackMap({
   return (
     <div className="map-wrap" ref={wrapRef} onMouseLeave={() => { setTip(null); onActive(null); }}>
       <svg viewBox={vb} role="img" aria-label="Map of the repository with the files this pull request changes and the files that import them">
+        <defs>
+          {STATES.map((s) => (
+            <radialGradient key={s} id={`gb-${s}`} cx="35%" cy="30%" r="75%">
+              <stop offset="0" style={{ stopColor: `color-mix(in srgb, ${STATE_COLOR[s]} 55%, white)` }} />
+              <stop offset="0.65" style={{ stopColor: STATE_COLOR[s] }} />
+              <stop offset="1" style={{ stopColor: `color-mix(in srgb, ${STATE_COLOR[s]} 88%, black)` }} />
+            </radialGradient>
+          ))}
+        </defs>
         <rect x={view.x - view.r} y={view.y - view.r} width={view.r * 2} height={view.r * 2} fill="transparent" onClick={() => focus.parent && zoomTo(focus.parent)} />
         {nodes.map((n, i) => {
           if (n.depth === 0) return null;
@@ -127,7 +138,11 @@ export function PackMap({
                 cy={n.y}
                 r={n.r}
                 vectorEffect="non-scaling-stroke"
-                style={{ fill: "var(--map-folder)", stroke: "var(--map-folder-line)", cursor: "zoom-in" }}
+                style={{
+                  fill: n.depth % 2 === 1 ? "var(--map-container)" : "var(--map-container-2)",
+                  stroke: "var(--map-folder-line)",
+                  cursor: "zoom-in",
+                }}
                 onClick={(e) => { e.stopPropagation(); zoomTo(n === focus && n.parent ? n.parent : n); }}
                 onMouseMove={(e) => showTip(e, n)}
               />
@@ -146,7 +161,7 @@ export function PackMap({
               vectorEffect="non-scaling-stroke"
               opacity={active && !isActive && s ? 0.45 : 1}
               style={{
-                fill: s ? (s === "removed" ? "transparent" : STATE_COLOR[s]) : "var(--map-rest)",
+                fill: s ? (s === "removed" ? "transparent" : `url(#gb-${s})`) : "var(--map-rest)",
                 stroke: s === "removed" ? STATE_COLOR.removed : isActive ? "var(--map-edge-active)" : "none",
                 cursor: s && s !== "removed" ? "pointer" : "default",
                 transition: "opacity .2s",
@@ -174,7 +189,7 @@ export function PackMap({
                 d={`M${p.x} ${p.y} Q${mx} ${my} ${q.x} ${q.y}`}
                 fill="none"
                 style={{ stroke: on ? "var(--map-edge-active)" : "var(--map-edge)" }}
-                strokeOpacity={on ? 0.85 : active ? 0.08 : 0.3}
+                strokeOpacity={on ? 0.85 : active ? 0.05 : 0.14}
                 strokeWidth={on ? 1.6 : 1}
                 vectorEffect="non-scaling-stroke"
               />

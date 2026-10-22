@@ -156,9 +156,9 @@ function TimelapseArt() {
       {steps.map((s, i) => (
         <g key={i} opacity={0.4 + i * 0.3}>
           <circle cx={s.x} cy={130} r={s.r} style={{ fill: "var(--map-folder)", stroke: "var(--map-folder-line)" }} />
-          <circle cx={s.x - s.r * 0.35} cy={130 - s.r * 0.2} r={s.r * 0.42} fill="#007aff" />
-          <circle cx={s.x + s.r * 0.42} cy={130 + s.r * 0.18} r={s.r * 0.32} fill="#ff9500" />
-          {i > 0 && <circle cx={s.x + s.r * 0.05} cy={130 + s.r * 0.62} r={s.r * 0.22} fill="#34c759" />}
+          <circle cx={s.x - s.r * 0.35} cy={130 - s.r * 0.2} r={s.r * 0.42} fill="#0a84ff" />
+          <circle cx={s.x + s.r * 0.42} cy={130 + s.r * 0.18} r={s.r * 0.32} fill="#5e5ce6" />
+          {i > 0 && <circle cx={s.x + s.r * 0.05} cy={130 + s.r * 0.62} r={s.r * 0.22} fill="#40c8e0" />}
           <circle cx={s.x} cy={222} r="3.5" style={{ fill: i === 2 ? "var(--text)" : "var(--line)" }} />
         </g>
       ))}

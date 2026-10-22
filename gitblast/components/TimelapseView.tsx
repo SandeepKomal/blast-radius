@@ -11,6 +11,7 @@ import { ErrorState, Loading } from "./States";
 import { blend, HERE, layoutFrames, topColors, type Placed } from "./timelapse-layout";
 
 const SPEEDS = [0.5, 1, 2, 4];
+const NEUTRAL = "#a1a1a6";
 const FRAME_MS = 900;
 
 export function TimelapseView({ owner, repo }: { owner: string; repo: string }) {
@@ -76,13 +77,15 @@ function Player({ data }: { data: Timelapse }) {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     // Colours come from the page's theme tokens and follow light and dark mode.
-    const theme = { font: "", line: "", labelBg: "", labelText: "" };
+    const theme = { font: "", line: "", container: "", inner: "", label: "" };
     const readTheme = () => {
       const css = getComputedStyle(document.documentElement);
-      theme.font = css.getPropertyValue("--font").trim() || "system-ui";
-      theme.line = css.getPropertyValue("--map-folder-line").trim();
-      theme.labelBg = css.getPropertyValue("--tooltip-bg").trim();
-      theme.labelText = css.getPropertyValue("--text").trim();
+      const v = (name: string) => css.getPropertyValue(name).trim();
+      theme.font = v("--font") || "system-ui";
+      theme.line = v("--map-folder-line");
+      theme.container = v("--map-container");
+      theme.inner = v("--map-container-2");
+      theme.label = v("--muted");
     };
     readTheme();
     const scheme = window.matchMedia("(prefers-color-scheme: dark)");
@@ -126,50 +129,59 @@ function Player({ data }: { data: Timelapse }) {
 
       const { size, ox, oy } = stageGeometry(w, h);
 
+      // Folders are quiet, nested surfaces; files are glossy spheres in
+      // their top-level folder's colour, lit from the upper left.
       for (const n of nodes) {
         const r = n.r * size;
         if (r < 0.4) continue;
         const x = ox + n.x * size;
         const y = oy + n.y * size;
-        const color = colors.get(n.top) ?? "#8e8e93";
+        const color = colors.get(n.top) ?? NEUTRAL;
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
-        if (n.leaf) {
-          ctx.fillStyle = withAlpha(color, n.key.endsWith(HERE) ? 0.45 : 0.8);
-          if (n.fresh > 0.05) {
-            ctx.shadowColor = color;
-            ctx.shadowBlur = 24 * n.fresh;
-          }
+        if (!n.leaf) {
+          ctx.fillStyle = n.depth % 2 === 1 ? theme.container : theme.inner;
           ctx.fill();
-          ctx.shadowBlur = 0;
-        } else {
-          ctx.fillStyle = withAlpha(color, n.depth === 1 ? 0.06 : 0.035);
-          ctx.fill();
-          ctx.strokeStyle = n.depth === 1 ? withAlpha(color, 0.4) : theme.line;
+          ctx.strokeStyle = theme.line;
           ctx.lineWidth = 1;
           ctx.stroke();
+          continue;
         }
+        const base = n.key.endsWith(HERE) ? mix(color, "#ffffff", 0.45) : color;
+        const g = ctx.createRadialGradient(x - r * 0.35, y - r * 0.4, r * 0.05, x, y, r);
+        g.addColorStop(0, mix(base, "#ffffff", 0.42));
+        g.addColorStop(0.65, base);
+        g.addColorStop(1, mix(base, "#000000", 0.1));
+        ctx.fillStyle = g;
+        if (n.fresh > 0.05) {
+          ctx.shadowColor = withAlpha(color, 0.55);
+          ctx.shadowBlur = 22 * n.fresh;
+        }
+        ctx.fill();
+        ctx.shadowBlur = 0;
       }
 
-      ctx.font = `500 12px ${theme.font}`;
       ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
       for (const n of nodes) {
         if (n.depth !== 1) continue;
         const r = n.r * size;
-        if (r < 30) continue;
-        const label = n.key === HERE ? "(root files)" : `${n.key}/`;
-        const max = Math.floor((r * 1.6) / 7);
+        if (r < 28) continue;
+        const label = n.key === HERE ? "Root files" : n.key;
+        const max = Math.floor((r * 1.5) / 7);
         const text = label.length > max ? `${label.slice(0, Math.max(1, max - 1))}…` : label;
         const x = ox + n.x * size;
-        const y = oy + n.y * size - r + (n.leaf ? r + 4 : 16);
-        ctx.fillStyle = theme.labelBg;
-        const tw = ctx.measureText(text).width;
-        ctx.beginPath();
-        ctx.roundRect(x - tw / 2 - 7, y - 11, tw + 14, 18, 9);
-        ctx.fill();
-        ctx.fillStyle = theme.labelText;
-        ctx.fillText(text, x, y + 1);
+        if (n.leaf) {
+          ctx.font = `600 12px ${theme.font}`;
+          ctx.fillStyle = "rgba(255,255,255,0.95)";
+          ctx.fillText(text, x, oy + n.y * size);
+        } else {
+          ctx.font = `600 11.5px ${theme.font}`;
+          ctx.fillStyle = theme.label;
+          ctx.fillText(text, x, oy + n.y * size - r + 14);
+        }
       }
+      ctx.textBaseline = "alphabetic";
 
       raf = requestAnimationFrame(draw);
     };
@@ -483,9 +495,22 @@ function countFolders(f: Frame | undefined): number {
   return new Set(Object.keys(f.dirs).map((d) => d.split("/")[0]).filter(Boolean)).size;
 }
 
-function withAlpha(hex: string, a: number): string {
+function rgb(hex: string): [number, number, number] {
   const v = parseInt(hex.slice(1), 16);
-  return `rgba(${(v >> 16) & 255},${(v >> 8) & 255},${v & 255},${a})`;
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+
+function withAlpha(hex: string, a: number): string {
+  const [r, g, b] = rgb(hex);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/** Blends `hex` towards `target` by `t` (0–1), returning a hex colour. */
+function mix(hex: string, target: string, t: number): string {
+  const a = rgb(hex);
+  const b = rgb(target);
+  const c = a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  return `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function PlayIcon() {

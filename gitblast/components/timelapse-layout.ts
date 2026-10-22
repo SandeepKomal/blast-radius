@@ -107,12 +107,20 @@ export function blend(a: Map<string, Placed>, b: Map<string, Placed>, k: number)
   return out.sort((p, q) => p.depth - q.depth || Number(p.leaf) - Number(q.leaf));
 }
 
-export const PALETTE = ["#007aff", "#ff9500", "#34c759", "#af52de", "#ff2d55", "#5ac8fa", "#ffcc00", "#5856d6", "#ff3b30", "#30b0c7"];
+/**
+ * One cool family (blues, indigos, violets, teals) of similar weight, so the
+ * map reads as a single object rather than a box of crayons.
+ */
+export const PALETTE = ["#0a84ff", "#5e5ce6", "#40c8e0", "#9b6cf0", "#3d9bf5", "#7a78f2", "#2fb5c9", "#b48af5", "#5aa9ff", "#6f8cf7"];
+
+/** Loose files in the repository root are not an area of their own, so they get a quiet slate. */
+const ROOT_FILES = "#8b95a8";
 
 /** Gives the biggest top-level folders (in the final frame) their own colour. */
 export function topColors(final: Map<string, Placed> | undefined): Map<string, string> {
   const tops = [...(final?.values() ?? [])].filter((p) => p.depth === 1).sort((a, b) => b.files - a.files);
   const m = new Map<string, string>();
-  tops.forEach((t, i) => m.set(t.top, PALETTE[i] ?? "#8e8e93"));
+  let i = 0;
+  for (const t of tops) m.set(t.top, t.top === HERE ? ROOT_FILES : PALETTE[i++ % PALETTE.length]);
   return m;
 }
