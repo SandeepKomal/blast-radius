@@ -107,12 +107,12 @@ export function blend(a: Map<string, Placed>, b: Map<string, Placed>, k: number)
   return out.sort((p, q) => p.depth - q.depth || Number(p.leaf) - Number(q.leaf));
 }
 
-export const PALETTE = ["#ff6a3d", "#4f8cff", "#2ee6a8", "#ffb020", "#a78bfa", "#ff3d8b", "#22d3ee", "#c4f04d", "#ff9f7a", "#7dd3fc"];
+export const PALETTE = ["#007aff", "#ff9500", "#34c759", "#af52de", "#ff2d55", "#5ac8fa", "#ffcc00", "#5856d6", "#ff3b30", "#30b0c7"];
 
 /** Gives the biggest top-level folders (in the final frame) their own colour. */
 export function topColors(final: Map<string, Placed> | undefined): Map<string, string> {
   const tops = [...(final?.values() ?? [])].filter((p) => p.depth === 1).sort((a, b) => b.files - a.files);
   const m = new Map<string, string>();
-  tops.forEach((t, i) => m.set(t.top, PALETTE[i] ?? "#6b7280"));
+  tops.forEach((t, i) => m.set(t.top, PALETTE[i] ?? "#8e8e93"));
   return m;
 }

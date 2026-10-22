@@ -44,7 +44,7 @@ function Report({ report }: { report: PRReport }) {
         <div className="crumbs">
           {repo.avatar && <img className="avatar" src={repo.avatar} alt="" width={20} height={20} referrerPolicy="no-referrer" />}
           <Link href={`/${repo.owner}/${repo.repo}`}>
-            {repo.owner}/<b style={{ color: "var(--text)" }}>{repo.repo}</b>
+            {repo.owner}/<b style={{ color: "var(--text)", fontWeight: 600 }}>{repo.repo}</b>
           </Link>
           <span className="sep">/</span>
           <span>Pull request</span>
@@ -56,7 +56,7 @@ function Report({ report }: { report: PRReport }) {
           <span className={`pill pill-${pr.state}`}>{pr.draft && pr.state === "open" ? "Draft" : cap(pr.state)}</span>
           <span className="who">
             {pr.authorAvatar && <img className="avatar" src={pr.authorAvatar} alt="" width={20} height={20} referrerPolicy="no-referrer" />}
-            <b style={{ color: "var(--text)", fontWeight: 550 }}>{pr.author}</b>
+            <span style={{ color: "var(--text)" }}>{pr.author}</span>
           </span>
           <span>
             <span className="branch" title={pr.head}>{pr.head}</span> → <span className="branch" title={pr.base}>{pr.base}</span>
@@ -67,7 +67,7 @@ function Report({ report }: { report: PRReport }) {
           <span>{ago(pr.createdAt)}</span>
           <span className="head-actions">
             <CopyLink />
-            <a className="btn btn-ghost" href={pr.url} target="_blank" rel="noopener noreferrer">
+            <a className="btn btn-primary btn-sm" href={pr.url} target="_blank" rel="noopener noreferrer">
               Open on GitHub ↗
             </a>
           </span>
@@ -133,22 +133,21 @@ function Report({ report }: { report: PRReport }) {
 }
 
 function ScoreRing({ score, level }: { score: number; level: Level }) {
-  const r = 48;
+  const r = 49;
   const c = 2 * Math.PI * r;
   return (
     <div className="score-ring" aria-label={`Blast score ${score} out of 100`}>
-      <svg width="112" height="112" viewBox="0 0 112 112">
-        <circle cx="56" cy="56" r={r} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8" />
+      <svg width="116" height="116" viewBox="0 0 116 116">
+        <circle className="track" cx="58" cy="58" r={r} fill="none" strokeWidth="9" />
         <circle
-          cx="56"
-          cy="56"
+          cx="58"
+          cy="58"
           r={r}
           fill="none"
           stroke={LEVEL_COLOR[level]}
-          strokeWidth="8"
+          strokeWidth="9"
           strokeLinecap="round"
           strokeDasharray={`${(Math.max(score, 2) / 100) * c} ${c}`}
-          style={{ filter: `drop-shadow(0 0 8px ${LEVEL_COLOR[level]})` }}
         />
       </svg>
       <div className="val">{score}</div>

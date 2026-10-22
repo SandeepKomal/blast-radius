@@ -35,7 +35,7 @@ export function ErrorState({ error, githubUrl }: { error: ApiError["error"]; git
         {minutes > 0 && ` Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`}
       </p>
       <div className="actions">
-        <Link href="/" className="btn btn-ghost">
+        <Link href="/" className="btn btn-primary">
           Back to gitblast
         </Link>
         {githubUrl && error.code !== "unavailable" && (

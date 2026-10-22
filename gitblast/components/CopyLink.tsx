@@ -6,7 +6,7 @@ export function CopyLink() {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="btn btn-ghost"
+      className="btn btn-ghost btn-sm"
       onClick={() => {
         navigator.clipboard?.writeText(window.location.href).then(
           () => {

@@ -40,12 +40,14 @@ export default async function Page({ params }: Props) {
   return (
     <>
       <SiteHeader />
-      <main className="wrap">
+      <main className="alt">
+        <div className="wrap">
         {route.kind === "pr" ? (
           <PRView owner={route.owner} repo={route.repo} number={route.number} />
         ) : (
           <TimelapseView owner={route.owner} repo={route.repo} />
         )}
+        </div>
       </main>
       <SiteFooter />
     </>

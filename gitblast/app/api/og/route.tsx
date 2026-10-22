@@ -20,20 +20,30 @@ export function GET(req: Request) {
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
-          padding: 72,
-          background: "radial-gradient(circle at 85% 20%, rgba(255,90,54,0.35), transparent 45%), #07080b",
-          color: "#eef0f4",
+          padding: 80,
+          background: "#fbfbfd",
+          color: "#1d1d1f",
           fontFamily: "sans-serif",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 34, fontWeight: 600 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 20, background: "linear-gradient(135deg,#ffb020,#ff5a36,#ff2e7e)" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 32, fontWeight: 600 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 17, background: "linear-gradient(90deg,#ff9500,#ff3b30,#ff2d55)" }} />
           gitblast
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          <div style={{ fontSize: 30, color: "#ff8a5c" }}>{kicker}</div>
-          <div style={{ fontSize: name.length > 30 ? 60 : 76, fontWeight: 700, letterSpacing: -2 }}>{name}</div>
-          <div style={{ fontSize: 30, color: "#9097a8" }}>{line}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div
+            style={{
+              fontSize: 32,
+              fontWeight: 600,
+              backgroundImage: "linear-gradient(90deg,#ff9500,#ff3b30,#ff2d55)",
+              backgroundClip: "text",
+              color: "transparent",
+            }}
+          >
+            {kicker}
+          </div>
+          <div style={{ fontSize: name.length > 30 ? 64 : 84, fontWeight: 700, letterSpacing: -3 }}>{name}</div>
+          <div style={{ fontSize: 32, color: "#6e6e73" }}>{line}</div>
         </div>
       </div>
     ),

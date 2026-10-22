@@ -35,8 +35,8 @@ export function UrlBox({ compact = false, autoFocus = false }: { compact?: boole
           autoComplete="off"
           spellCheck={false}
         />
-        <button type="submit" className={`btn ${compact ? "btn-ghost" : "btn-primary"}`}>
-          {compact ? "Go" : "Blast it"}
+        <button type="submit" className={`btn btn-primary${compact ? " btn-sm" : ""}`}>
+          {compact ? "Go" : "Show me"}
         </button>
       </div>
       {error && !compact && <div className="form-error">{error}</div>}

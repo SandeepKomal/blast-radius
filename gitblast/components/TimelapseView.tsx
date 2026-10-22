@@ -75,7 +75,18 @@ function Player({ data }: { data: Timelapse }) {
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    const font = getComputedStyle(document.body).getPropertyValue("--font-geist-mono") || "monospace";
+    // Colours come from the page's theme tokens and follow light and dark mode.
+    const theme = { font: "", line: "", labelBg: "", labelText: "" };
+    const readTheme = () => {
+      const css = getComputedStyle(document.documentElement);
+      theme.font = css.getPropertyValue("--font").trim() || "system-ui";
+      theme.line = css.getPropertyValue("--map-folder-line").trim();
+      theme.labelBg = css.getPropertyValue("--tooltip-bg").trim();
+      theme.labelText = css.getPropertyValue("--text").trim();
+    };
+    readTheme();
+    const scheme = window.matchMedia("(prefers-color-scheme: dark)");
+    scheme.addEventListener("change", readTheme);
     let raf = 0;
     let prev = performance.now();
     let shown = -1;
@@ -120,7 +131,7 @@ function Player({ data }: { data: Timelapse }) {
         if (r < 0.4) continue;
         const x = ox + n.x * size;
         const y = oy + n.y * size;
-        const color = colors.get(n.top) ?? "#6b7280";
+        const color = colors.get(n.top) ?? "#8e8e93";
         ctx.beginPath();
         ctx.arc(x, y, r, 0, Math.PI * 2);
         if (n.leaf) {
@@ -134,13 +145,13 @@ function Player({ data }: { data: Timelapse }) {
         } else {
           ctx.fillStyle = withAlpha(color, n.depth === 1 ? 0.06 : 0.035);
           ctx.fill();
-          ctx.strokeStyle = n.depth === 1 ? withAlpha(color, 0.35) : "rgba(255,255,255,0.08)";
+          ctx.strokeStyle = n.depth === 1 ? withAlpha(color, 0.4) : theme.line;
           ctx.lineWidth = 1;
           ctx.stroke();
         }
       }
 
-      ctx.font = `500 11.5px ${font}`;
+      ctx.font = `500 12px ${theme.font}`;
       ctx.textAlign = "center";
       for (const n of nodes) {
         if (n.depth !== 1) continue;
@@ -151,17 +162,22 @@ function Player({ data }: { data: Timelapse }) {
         const text = label.length > max ? `${label.slice(0, Math.max(1, max - 1))}…` : label;
         const x = ox + n.x * size;
         const y = oy + n.y * size - r + (n.leaf ? r + 4 : 16);
-        ctx.fillStyle = "rgba(7,8,11,0.55)";
+        ctx.fillStyle = theme.labelBg;
         const tw = ctx.measureText(text).width;
-        ctx.fillRect(x - tw / 2 - 4, y - 10, tw + 8, 15);
-        ctx.fillStyle = "rgba(238,240,244,0.85)";
+        ctx.beginPath();
+        ctx.roundRect(x - tw / 2 - 7, y - 11, tw + 14, 18, 9);
+        ctx.fill();
+        ctx.fillStyle = theme.labelText;
         ctx.fillText(text, x, y + 1);
       }
 
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      scheme.removeEventListener("change", readTheme);
+    };
   }, [layouts, colors, last]);
 
   // Keyboard: space plays or pauses, arrows step.
@@ -209,7 +225,7 @@ function Player({ data }: { data: Timelapse }) {
           {repo.avatar && <img className="avatar" src={repo.avatar} alt="" width={20} height={20} referrerPolicy="no-referrer" />}
           <span>{repo.owner}</span>
           <span className="sep">/</span>
-          <b style={{ color: "var(--text)" }}>{repo.repo}</b>
+          <b style={{ color: "var(--text)", fontWeight: 600 }}>{repo.repo}</b>
         </div>
         <h1 className="page-title">How {repo.repo} grew</h1>
         <div className="meta-row">
@@ -221,7 +237,7 @@ function Player({ data }: { data: Timelapse }) {
           <span>{num(data.totalCommits)} commits since {monthYear(repo.createdAt)}</span>
           <span className="head-actions">
             <CopyLink />
-            <a className="btn btn-ghost" href={`https://github.com/${repo.owner}/${repo.repo}`} target="_blank" rel="noopener noreferrer">
+            <a className="btn btn-primary btn-sm" href={`https://github.com/${repo.owner}/${repo.repo}`} target="_blank" rel="noopener noreferrer">
               Open on GitHub ↗
             </a>
           </span>
@@ -256,7 +272,10 @@ function Player({ data }: { data: Timelapse }) {
                 <div className="msg">{current.message}</div>
                 <div className="by">
                   {current.avatar && <img className="avatar" src={current.avatar} alt="" width={16} height={16} referrerPolicy="no-referrer" />}
-                  {current.author} · <span className="mono">{current.sha.slice(0, 7)}</span>
+                  {current.author}
+                  <span className="sha">
+                    · <span className="mono">{current.sha.slice(0, 7)}</span>
+                  </span>
                 </div>
               </div>
             </div>
@@ -268,7 +287,7 @@ function Player({ data }: { data: Timelapse }) {
             </div>
           )}
           <div className="controls">
-            <button className="btn btn-primary btn-icon" onClick={() => play(!playing)} aria-label={playing ? "Pause" : "Play"}>
+            <button className="btn btn-ghost btn-icon" onClick={() => play(!playing)} aria-label={playing ? "Pause" : "Play"}>
               {playing ? <PauseIcon /> : <PlayIcon />}
             </button>
             <Scrubber t={t} last={last} milestones={data.milestones} onSeek={(v) => { play(false); seek(v); }} />
@@ -435,7 +454,7 @@ function PullRequests({ owner, repo }: { owner: string; repo: string }) {
                     <span className="faint mono">#{p.number}</span> {p.title}
                     {p.draft && <span className="pill" style={{ marginLeft: 8 }}>Draft</span>}
                   </span>
-                  <span className="go">Blast it →</span>
+                  <span className="go chev">Show blast radius</span>
                 </Link>
               </li>
             ))}
@@ -445,7 +464,7 @@ function PullRequests({ owner, repo }: { owner: string; repo: string }) {
           <div className="urlbox compact" style={{ flex: 1, maxWidth: 320 }}>
             <label htmlFor="pr-number" className="sr-only">Pull request number</label>
             <input id="pr-number" value={n} onChange={(e) => setN(e.target.value)} placeholder="Any PR number, e.g. 1234" inputMode="numeric" />
-            <button type="submit" className="btn btn-ghost">Go</button>
+            <button type="submit" className="btn btn-primary btn-sm">Go</button>
           </div>
         </form>
       </div>

@@ -115,15 +115,6 @@ export function PackMap({
   return (
     <div className="map-wrap" ref={wrapRef} onMouseLeave={() => { setTip(null); onActive(null); }}>
       <svg viewBox={vb} role="img" aria-label="Map of the repository with the files this pull request changes and the files that import them">
-        <defs>
-          <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
-            <feGaussianBlur stdDeviation={6 / scale} result="b" />
-            <feMerge>
-              <feMergeNode in="b" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
         <rect x={view.x - view.r} y={view.y - view.r} width={view.r * 2} height={view.r * 2} fill="transparent" onClick={() => focus.parent && zoomTo(focus.parent)} />
         {nodes.map((n, i) => {
           if (n.depth === 0) return null;
@@ -135,10 +126,8 @@ export function PackMap({
                 cx={n.x}
                 cy={n.y}
                 r={n.r}
-                fill={n === focus ? "rgba(255,255,255,0.015)" : "rgba(255,255,255,0.022)"}
-                stroke="rgba(255,255,255,0.09)"
                 vectorEffect="non-scaling-stroke"
-                style={{ cursor: "zoom-in" }}
+                style={{ fill: "var(--map-folder)", stroke: "var(--map-folder-line)", cursor: "zoom-in" }}
                 onClick={(e) => { e.stopPropagation(); zoomTo(n === focus && n.parent ? n.parent : n); }}
                 onMouseMove={(e) => showTip(e, n)}
               />
@@ -152,14 +141,16 @@ export function PackMap({
               cx={n.x}
               cy={n.y}
               r={Math.max(n.r, 2.2 / scale)}
-              fill={s ? (s === "removed" ? "transparent" : STATE_COLOR[s]) : "rgba(255,255,255,0.055)"}
-              stroke={s === "removed" ? STATE_COLOR.removed : isActive ? "#fff" : "none"}
-              strokeWidth={isActive ? 2 : 1.4}
+              strokeWidth={isActive ? 2.5 : 1.5}
               strokeDasharray={s === "removed" ? "3 3" : undefined}
               vectorEffect="non-scaling-stroke"
-              opacity={active && !isActive && s ? 0.55 : 1}
-              filter={s === "changed" || s === "added" ? "url(#glow)" : undefined}
-              style={{ cursor: s && s !== "removed" ? "pointer" : "default", transition: "opacity .2s" }}
+              opacity={active && !isActive && s ? 0.45 : 1}
+              style={{
+                fill: s ? (s === "removed" ? "transparent" : STATE_COLOR[s]) : "var(--map-rest)",
+                stroke: s === "removed" ? STATE_COLOR.removed : isActive ? "var(--map-edge-active)" : "none",
+                cursor: s && s !== "removed" ? "pointer" : "default",
+                transition: "opacity .2s",
+              }}
               onMouseMove={(e) => showTip(e, n)}
               onClick={(e) => {
                 e.stopPropagation();
@@ -182,8 +173,8 @@ export function PackMap({
                 key={i}
                 d={`M${p.x} ${p.y} Q${mx} ${my} ${q.x} ${q.y}`}
                 fill="none"
-                stroke={on ? "#fff" : "var(--ripple1)"}
-                strokeOpacity={on ? 0.9 : active ? 0.06 : 0.22}
+                style={{ stroke: on ? "var(--map-edge-active)" : "var(--map-edge)" }}
+                strokeOpacity={on ? 0.85 : active ? 0.08 : 0.3}
                 strokeWidth={on ? 1.6 : 1}
                 vectorEffect="non-scaling-stroke"
               />
@@ -198,8 +189,7 @@ export function PackMap({
               y={n.y - n.r + 34 / scale}
               textAnchor="middle"
               fontSize={21 / scale}
-              fill="rgba(238,240,244,0.72)"
-              style={{ fontFamily: "var(--font-geist-mono)" }}
+              style={{ fill: "var(--map-label)", fontFamily: "var(--font)", fontWeight: 500 }}
             >
               {truncate(n.data.name, Math.floor((n.r * scale) / 8))}
             </text>
@@ -207,7 +197,7 @@ export function PackMap({
         </g>
       </svg>
       {focus.depth > 0 && (
-        <button className="btn btn-ghost" style={{ position: "absolute", left: 10, top: 10, padding: "5px 10px", fontSize: 12.5 }} onClick={() => zoomTo(root)}>
+        <button className="btn btn-ghost btn-sm map-back" onClick={() => zoomTo(root)}>
           ← {focus.ancestors().reverse().slice(1).map((a) => a.data.name).join("/")}
         </button>
       )}
@@ -263,7 +253,7 @@ export function Legend() {
         </span>
       ))}
       <span>
-        <i className="dot" style={{ background: "rgba(255,255,255,0.12)" }} />
+        <i className="dot" style={{ background: "var(--map-rest)" }} />
         Unaffected
       </span>
     </div>

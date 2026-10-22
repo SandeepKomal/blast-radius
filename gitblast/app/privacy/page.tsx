@@ -8,7 +8,7 @@ export default function Privacy() {
   return (
     <>
       <SiteHeader />
-      <main className="wrap">
+      <main className="wrap" style={{ paddingBottom: 96 }}>
         <article className="prose">
           <h1>Privacy and opt-out</h1>
           <p>The short version: gitblast looks only at public repositories, keeps no code and doesn&apos;t track you.</p>

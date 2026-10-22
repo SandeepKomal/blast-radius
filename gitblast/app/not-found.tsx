@@ -5,7 +5,8 @@ export default function NotFound() {
   return (
     <>
       <SiteHeader />
-      <main className="wrap">
+      <main className="alt">
+        <div className="wrap">
         <div className="card error-box">
           <h1>That isn&apos;t a GitHub link</h1>
           <p>
@@ -17,6 +18,7 @@ export default function NotFound() {
               Go to gitblast
             </Link>
           </div>
+        </div>
         </div>
       </main>
       <SiteFooter />
