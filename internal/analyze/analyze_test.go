@@ -608,3 +608,57 @@ func TestGuardWindowsPaths(t *testing.T) {
 		}
 	}
 }
+
+const awsConfig = `[default]
+region = us-east-1
+sso_account_id = 111111111111
+
+[profile  prod]
+role_arn = arn:aws:iam::222222222222:role/admin
+source_profile = default
+
+[profile staging]
+aws_account_id = 333333333333
+
+[profile chained]
+source_profile = staging
+
+[profile keys-only]
+region = eu-west-1
+
+[profile loop-a]
+source_profile = loop-b
+
+[profile loop-b]
+source_profile = loop-a
+`
+
+func TestAWSAccount(t *testing.T) {
+	for _, k := range []string{"AWS_ACCESS_KEY_ID", "AWS_ACCOUNT_ID", "AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_REGION", "AWS_DEFAULT_REGION"} {
+		t.Setenv(k, "")
+	}
+	cfg := filepath.Join(t.TempDir(), "config")
+	os.WriteFile(cfg, []byte(awsConfig), 0o600)
+	env := "AWS_CONFIG_FILE=" + filepath.ToSlash(cfg) + " "
+	del := " ec2 terminate-instances --instance-ids i-1"
+	cases := map[string]string{
+		env + "aws" + del:                                         "profile default (account 111111111111)",
+		env + "aws --profile prod" + del:                          "profile prod (account 222222222222)",
+		env + "AWS_PROFILE=staging aws" + del:                     "profile staging (account 333333333333)",
+		env + "aws --profile chained" + del:                       "profile chained (account 333333333333)",
+		env + "aws --profile keys-only" + del:                     "profile keys-only",
+		env + "aws --profile loop-a" + del:                        "profile loop-a",
+		env + "aws --profile missing" + del:                       "profile missing",
+		env + "AWS_ACCOUNT_ID=444444444444 aws" + del:             "profile default (account 444444444444)",
+		env + "AWS_ACCESS_KEY_ID=AKIA AWS_PROFILE=prod aws" + del: "profile prod",
+		env + "AWS_ACCESS_KEY_ID=AKIA aws --profile prod" + del:   "profile prod (account 222222222222)",
+		env + "aws --profile prod --region eu-west-1" + del:       "profile prod (account 222222222222), region eu-west-1",
+		`AWS_CONFIG_FILE=/nonexistent aws` + del:                  "profile default",
+	}
+	for script, target := range cases {
+		findings, fk := analyze(t, script, nil)
+		if f := only(t, findings, fk.calls); f.Target != target {
+			t.Errorf("%s: target %q, want %q", script, f.Target, target)
+		}
+	}
+}

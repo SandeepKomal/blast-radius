@@ -66,8 +66,19 @@ case-insensitively, against:
 - the Terraform workspace and working directory,
 - the kube context and namespace (`--context`, `kubectl config use-context`,
   or `kubectl config current-context`),
-- the AWS profile and region, the gcloud project, the Azure subscription and
-  resource group, the Pulumi stack.
+- the AWS profile, account and region, the gcloud project, the Azure
+  subscription and resource group, the Pulumi stack.
+
+The AWS account is read from the AWS config file (`~/.aws/config`, or
+`AWS_CONFIG_FILE`) without calling AWS: `aws_account_id` or `sso_account_id`
+in the profile, or the account in its `role_arn`, following `source_profile`.
+`AWS_ACCOUNT_ID` overrides it. When access keys in the environment override
+the profile, the account can't be told offline and only the profile name is
+matched. To protect a whole account, whatever the profile is called:
+
+```json
+{ "name": "production", "match": ["123456789012"], "change": "ask", "destroy": "deny" }
+```
 
 Built-in: one environment, `production`, matching `*prod*` and `*prd*`, with
 `change: ask` and `destroy: deny`. That pattern also matches names like
