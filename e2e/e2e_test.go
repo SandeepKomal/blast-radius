@@ -582,3 +582,53 @@ func TestEvasion(t *testing.T) {
 		}
 	}
 }
+
+// TestAWS checks that the AWS account is read from a config file written by
+// the real aws CLI, and that an environment can match on it. Nothing here
+// talks to AWS.
+func TestAWS(t *testing.T) {
+	if _, err := exec.LookPath("aws"); err != nil {
+		t.Skip("aws not on PATH")
+	}
+	home := t.TempDir()
+	dir := t.TempDir()
+	cfg := filepath.Join(t.TempDir(), "aws-config")
+	environ := append(os.Environ(),
+		"HOME="+home, "USERPROFILE="+home, "XDG_CONFIG_HOME="+filepath.Join(home, ".config"),
+		"AppData="+filepath.Join(home, "AppData"), "AWS_CONFIG_FILE="+cfg,
+		"AWS_ACCESS_KEY_ID=", "AWS_SECRET_ACCESS_KEY=", "AWS_PROFILE=", "AWS_ACCOUNT_ID=")
+	run(t, dir, environ, "aws", "configure", "set", "sso_account_id", "111111111111", "--profile", "default")
+	run(t, dir, environ, "aws", "configure", "set", "role_arn", "arn:aws:iam::222222222222:role/admin", "--profile", "ops")
+	run(t, dir, environ, "aws", "configure", "set", "source_profile", "default", "--profile", "ops")
+
+	// Production is the account, whatever the profile is called.
+	run(t, dir, environ, binary, "init", "--user")
+	conf, err := os.UserConfigDir()
+	if runtime.GOOS != "darwin" {
+		conf = filepath.Join(home, ".config")
+		if runtime.GOOS == "windows" {
+			conf = filepath.Join(home, "AppData")
+		}
+	} else if err == nil {
+		conf = filepath.Join(home, "Library", "Application Support")
+	}
+	os.WriteFile(filepath.Join(conf, "blast-radius", "config.json"),
+		[]byte(`{"environments": [{"name": "production", "match": ["222222222222"], "change": "ask", "destroy": "deny"}]}`), 0o644)
+
+	cases := map[string]string{
+		"aws ec2 terminate-instances --instance-ids i-1":                             "ask",
+		"aws --profile ops ec2 terminate-instances --instance-ids i-1":               "deny",
+		"AWS_PROFILE=ops aws rds delete-db-instance --db-instance-identifier orders": "deny",
+		"aws --profile ops ec2 describe-instances":                                   "pass",
+	}
+	for command, want := range cases {
+		r := check(t, dir, environ, command)
+		if r.Action != want {
+			t.Errorf("%q: %q, want %q (%+v)", command, r.Action, want, r)
+		}
+	}
+	r := check(t, dir, environ, "aws --profile ops ec2 terminate-instances --instance-ids i-1")
+	if len(r.Findings) != 1 || !strings.Contains(r.Findings[0].Target, "account 222222222222") {
+		t.Errorf("target: %+v", r)
+	}
+}

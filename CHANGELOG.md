@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- AWS commands are matched against the account of the active profile, read offline from the AWS
+  config file (`aws_account_id`, `sso_account_id`, `role_arn`, `source_profile`) or
+  `AWS_ACCOUNT_ID`, so an environment can protect a whole AWS account whatever the profile is
+  called.
+
 ## [0.1.0] - 2026-10-19
 
 First release.

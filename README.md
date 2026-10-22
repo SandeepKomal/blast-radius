@@ -94,15 +94,16 @@ Out of the box:
 | production (`*prod*`, `*prd*`) | ask | deny |
 
 The environment is matched against the Terraform workspace or Pulumi stack, kube context and
-namespace, AWS profile, gcloud project, Azure subscription and resource group, and working
-directory. You can add environments, protect specific resources so they are never deleted, mark
+namespace, AWS profile and account, gcloud project, Azure subscription and resource group, and
+working directory. Names without `prod` in them can be added to an environment, so a production
+cluster called `eks-main` or a whole AWS account is protected too. You can add environments, protect specific resources so they are never deleted, mark
 your own resource types as holding data, and keep an audit log:
 
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/SandeepKomal/blast-radius/main/docs/config.schema.json",
   "environments": [
-    { "name": "production", "match": ["*prod*", "arn:aws:eks:*:123456789012:*"], "change": "ask", "destroy": "deny" },
+    { "name": "production", "match": ["*prod*", "eks-main", "123456789012", "arn:aws:eks:*:123456789012:*"], "change": "ask", "destroy": "deny" },
     { "name": "sandbox", "match": ["kind-*", "minikube"], "destroy": "pass" }
   ],
   "protect": ["aws_db_instance.*", "*/persistentvolumeclaim/*"],

@@ -141,11 +141,16 @@ func (a *Analyzer) aws(c shell.Command, st *state) *Finding {
 	if region == "" {
 		region = lookup(env, "AWS_DEFAULT_REGION")
 	}
+	_, explicitProfile := flagValue(args, "--profile")
+	account := awsAccount(profile, explicitProfile, env)
 	target := "profile " + profile
+	if account != "" {
+		target += " (account " + account + ")"
+	}
 	if region != "" {
 		target += ", region " + region
 	}
-	f := cloudFinding("aws", c, target, []string{profile, region, st.dir})
+	f := cloudFinding("aws", c, target, []string{profile, account, region, st.dir})
 
 	switch {
 	case svc == "s3" && (op == "rm" || op == "rb"):
@@ -173,6 +178,66 @@ func (a *Analyzer) aws(c shell.Command, st *state) *Finding {
 		noUndo(f, "the aws CLI")
 	}
 	return f
+}
+
+// awsAccount finds the AWS account a profile uses from the local AWS config
+// file, without calling AWS: aws_account_id or sso_account_id in the profile,
+// or the account in its role_arn, following source_profile. It returns "" if
+// the account can't be told offline, for example when access keys in the
+// environment override the profile.
+func awsAccount(profile string, explicitProfile bool, env []string) string {
+	if v := lookup(env, "AWS_ACCOUNT_ID"); v != "" {
+		return v
+	}
+	if !explicitProfile && lookup(env, "AWS_ACCESS_KEY_ID") != "" {
+		return ""
+	}
+	file := lookup(env, "AWS_CONFIG_FILE")
+	if file == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		file = filepath.Join(home, ".aws", "config")
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	text := string(b)
+	for range 5 { // source_profile chains are short; stop on loops
+		section := "profile " + profile
+		if profile == "default" && iniSection(text, "default") {
+			section = "default"
+		}
+		if v := iniValue(text, section, "role_arn"); v != "" {
+			if parts := strings.Split(v, ":"); len(parts) > 4 && parts[4] != "" {
+				return parts[4]
+			}
+		}
+		for _, key := range []string{"aws_account_id", "sso_account_id"} {
+			if v := iniValue(text, section, key); v != "" {
+				return v
+			}
+		}
+		next := iniValue(text, section, "source_profile")
+		if next == "" || next == profile {
+			return ""
+		}
+		profile = next
+	}
+	return ""
+}
+
+// iniSection reports whether an INI file has a [name] section.
+func iniSection(text, name string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") && strings.Join(strings.Fields(line[1:len(line)-1]), " ") == name {
+			return true
+		}
+	}
+	return false
 }
 
 var gcloudValueFlags = set("--project", "--region", "--zone", "--format", "--account", "--configuration",
@@ -274,7 +339,7 @@ func iniValue(text, section, key string) string {
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			in = strings.TrimSpace(line[1:len(line)-1]) == section
+			in = strings.Join(strings.Fields(line[1:len(line)-1]), " ") == section
 			continue
 		}
 		if k, v, ok := strings.Cut(line, "="); in && ok && strings.TrimSpace(k) == key {
