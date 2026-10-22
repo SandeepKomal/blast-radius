@@ -152,6 +152,20 @@ blast-radius guards against mistakes, not against an agent deliberately working 
 
 Keep using least-privilege credentials for anything that matters.
 
+## Pair it with paranoid-sre
+
+blast-radius stops a dangerous command at the last moment.
+[paranoid-sre](https://github.com/SandeepKomal/paranoid-sre) is a Claude skill that works earlier:
+it makes the agent check which environment it is in, preview the change (with
+`blast-radius check` when it is installed), find a way back and ask you before anything it
+can't undo. Together:
+
+```bash
+blast-radius install
+claude plugin marketplace add SandeepKomal/paranoid-sre
+claude plugin install paranoid-sre@paranoid-sre
+```
+
 ## Roadmap
 
 - Hooks for Codex, Cursor, Gemini CLI and OpenCode
