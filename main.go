@@ -42,6 +42,8 @@ Usage:
   blast-radius init [--user]         write a starter .blast-radius.json (or your user config)
   blast-radius config                print the policy in effect for this directory
   blast-radius ui [--addr host:port] open a local dashboard of what was checked, asked and blocked
+  blast-radius audit prune|forget|export ...
+                                     apply retention, erase or export entries in the audit log
   blast-radius hook claude           run as a Claude Code hook (reads JSON on stdin)
   blast-radius version
 
@@ -83,6 +85,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return printConfig(stdout, stderr)
 	case "ui":
 		return serveUI(args[1:], stdout, stderr)
+	case "audit":
+		return auditCmd(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, "blast-radius", versionString())
 		return 0
@@ -135,7 +139,7 @@ func evaluate(req request, run analyze.Runner, stderr io.Writer) ([]analyze.Find
 	}
 	action := policy.Strictest(verdicts)
 	if cfg.AuditLog != "" && (len(findings) > 0 || cfg.AuditAll && req.agent.ToolUseID != "" && req.script != "") {
-		if err := writeAudit(cfg.AuditLog, req, findings, verdicts, action); err != nil {
+		if err := writeAudit(cfg.AuditLog, cfg.Redact(), req, findings, verdicts, action); err != nil {
 			fmt.Fprintf(stderr, "blast-radius: audit log: %v\n", err)
 		}
 	}

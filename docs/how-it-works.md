@@ -36,8 +36,9 @@ timeout, for `SessionStart`, `UserPromptSubmit`, `PostToolUse`,
 `PostToolUseFailure` and `PermissionDenied`. Those hooks never decide
 anything and never print anything: when you have an
 [audit log](configuration.md#audit_log), they record which model a session
-runs, the request you gave the agent, and whether each checked shell command
-then ran, failed or was denied by auto mode. `blast-radius ui` uses this to
+runs, the request you gave the agent (with personal data masked), which
+skills it loads (such as paranoid-sre, by name only), and whether each
+checked shell command then ran, failed or was denied by auto mode. `blast-radius ui` uses this to
 show which agent ran a command, for which task, and whether you approved it.
 Claude Code has no hook for a permission prompt you decline, so a command
 blast-radius asked about that never reports a result is shown as not run.

@@ -18,8 +18,9 @@
     <nav class="nav" aria-label="Views">
       <a href="#overview" data-view="overview"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/></svg>Overview</a>
       <a href="#activity" data-view="activity"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h3.5l2-5 4 10 2-5H18"/></svg>Activity<span class="nav-count todo" id="nav-wait" title="Waiting for your answer" hidden></span><span class="nav-count" id="nav-count"></span></a>
+      <a href="#tasks" data-view="tasks"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5l6 2.5v4.5c0 4-2.6 6.8-6 8-3.4-1.2-6-4-6-8V5z"/><path d="M7.5 10l2 2 3.5-4"/></svg>Tasks</a>
       <a href="#setup" data-view="setup"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l3.5 3.5L16 5.5"/></svg>Setup<span class="nav-count todo" id="setup-count" hidden></span></a>
-      <a href="#rules" data-view="rules"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5l6 2.5v4.5c0 4-2.6 6.8-6 8-3.4-1.2-6-4-6-8V5z"/></svg>Rules</a>
+      <a href="#rules" data-view="rules"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h8"/></svg>Rules</a>
     </nav>
     <div class="side-block">
       <p class="side-title">Protection</p>
@@ -27,6 +28,7 @@
         <li><i class="dot"></i>Hook<span>…</span></li>
         <li><i class="dot"></i>Activity log<span>…</span></li>
         <li><i class="dot"></i>paranoid-sre<span>…</span></li>
+        <li><i class="dot"></i>Masking<span>…</span></li>
       </ul>
     </div>
     <div class="side-foot">
@@ -81,9 +83,20 @@
 
       <div class="grid g-1-1-1">
         <article class="card">
+          <header class="card-head"><div><h2>Careful mode</h2><p class="muted">What paranoid-sre made the agent do first</p></div><a class="link" href="#tasks">Tasks →</a></header>
+          <div id="care"></div>
+        </article>
+        <article class="card">
           <header class="card-head"><div><h2>Agents</h2><p class="muted">Which agent ran commands, with its model and task</p></div></header>
           <div id="agents"></div>
         </article>
+        <article class="card">
+          <header class="card-head"><div><h2>Right now</h2><p class="muted">Previews running and commands waiting for you</p></div><span class="badge" id="run-badge">0</span></header>
+          <div id="running"></div>
+        </article>
+      </div>
+
+      <div class="grid g-1-1">
         <article class="card">
           <header class="card-head"><div><h2>By environment</h2><p class="muted">Where risky commands were aimed</p></div></header>
           <div id="by-env"></div>
@@ -94,16 +107,22 @@
         </article>
       </div>
 
-      <div class="grid g-1-2">
-        <article class="card">
-          <header class="card-head"><div><h2>Right now</h2><p class="muted">Previews running and commands waiting for you</p></div><span class="badge" id="run-badge">0</span></header>
-          <div id="running"></div>
-        </article>
-        <article class="card">
-          <header class="card-head"><div><h2>Latest blocked</h2><p class="muted">Commands blast-radius stopped</p></div><a class="link" href="#activity" data-goto-filter="deny">View all →</a></header>
-          <div id="latest-blocked"></div>
-        </article>
+      <article class="card">
+        <header class="card-head"><div><h2>Latest blocked</h2><p class="muted">Commands blast-radius stopped</p></div><a class="link" href="#activity" data-goto-filter="deny">View all →</a></header>
+        <div id="latest-blocked"></div>
+      </article>
+    </section>
+
+    <!-- Tasks -->
+    <section class="view" id="view-tasks" hidden>
+      <div class="task-intro">
+        <div class="care-legend">
+          <span class="care-badge on"><svg viewBox="0 0 16 16" width="12" height="12" class="shield" aria-hidden="true"><path d="M8 1l5.5 2v4.2c0 3.4-2.3 5.9-5.5 7.3-3.2-1.4-5.5-3.9-5.5-7.3V3z"/></svg>paranoid-sre</span>
+          <span>makes the agent <b>check where it is</b>, <b>preview the change</b> and <b>make a way back</b> before a risky command. blast-radius then checks the command itself.</span>
+        </div>
+        <span class="muted count" id="task-count"></span>
       </div>
+      <div class="task-list" id="task-list"></div>
     </section>
 
     <!-- Activity -->
@@ -192,6 +211,16 @@ blast-radius check terraform destroy   # blocked</pre>
       <article class="card" id="protect" hidden>
         <header class="card-head"><div><h2>Never deleted</h2><p class="muted">Protected in every environment</p></div></header>
         <div class="chips" id="protect-list"></div>
+      </article>
+      <article class="card" id="privacy">
+        <header class="card-head"><div><h2>Privacy</h2><p class="muted">What the activity log keeps, for how long, and how to erase it. Built with India's DPDP Act in mind; see <a class="link" href="https://github.com/SandeepKomal/blast-radius/blob/main/docs/privacy.md" rel="noreferrer">docs/privacy.md</a>.</p></div></header>
+        <div class="privacy-grid">
+          <ul class="privacy-list" id="privacy-list"></ul>
+          <div class="privacy-actions">
+            <h3 class="sub">Answer a person's request</h3>
+            <div id="privacy-cmds"></div>
+          </div>
+        </div>
       </article>
     </section>
   </div>
