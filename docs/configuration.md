@@ -119,7 +119,9 @@ not in a hook failure.
 
 A file that gets one JSON line for every command that had findings, with the
 decision and the resources it would have deleted. Only read from your user
-config. `~/` is expanded.
+config. `~/` is expanded. `blast-radius ui` shows it as a live feed, and while a
+preview runs, a small file in a `running` directory next to the log lets the
+dashboard show it as in progress.
 
 ```json
 {"time":"2026-10-18T09:12:44Z","tool":"Bash","dir":"/src/infra","command":"terraform destroy","action":"deny","findings":[{"tool":"terraform","target":"workspace prod","level":"destroy","action":"deny","environment":"production","destroyed":["aws_db_instance.main"]}]}

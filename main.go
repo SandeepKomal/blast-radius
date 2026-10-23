@@ -41,6 +41,7 @@ Usage:
   blast-radius doctor                check that the hook, config and tools are set up correctly
   blast-radius init [--user]         write a starter .blast-radius.json (or your user config)
   blast-radius config                print the policy in effect for this directory
+  blast-radius ui [--addr host:port] open a local dashboard of what was checked, asked and blocked
   blast-radius hook claude           run as a Claude Code PreToolUse hook (reads JSON on stdin)
   blast-radius version
 
@@ -80,6 +81,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return initConfig(args[1:], stdout, stderr)
 	case "config":
 		return printConfig(stdout, stderr)
+	case "ui":
+		return serveUI(args[1:], stdout, stderr)
 	case "version", "--version", "-v":
 		fmt.Fprintln(stdout, "blast-radius", versionString())
 		return 0
@@ -114,6 +117,9 @@ func evaluate(req request, run analyze.Runner, stderr io.Writer) ([]analyze.Find
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.PreviewTimeoutSeconds)*time.Second)
 		defer cancel()
+		if cfg.AuditLog != "" {
+			defer markRunning(cfg.AuditLog, req, cfg.PreviewTimeoutSeconds)()
+		}
 		findings = a.Analyze(ctx, req.script, req.dir, req.shell)
 	}
 
