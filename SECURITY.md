@@ -58,6 +58,19 @@ disks, don't attach it to public issues, and use `blast-radius audit forget`
 to remove entries. [docs/privacy.md](docs/privacy.md) lists everything it can
 contain.
 
+## OpenSSF Scorecard
+
+[Scorecard](https://scorecard.dev/viewer/?uri=github.com/SandeepKomal/blast-radius)
+rates this repository's security practices weekly. What each check needs:
+
+| Check | Status |
+| --- | --- |
+| Token-Permissions, Pinned-Dependencies, Dangerous-Workflow, SAST, Fuzzing, Security-Policy, License, Dependency-Update-Tool, Signed-Releases, CI-Tests | Met in the repository itself. SAST and CI-Tests count recent commits, so they rise as new changes go through pull requests. |
+| Branch-Protection | A ruleset on `main` requiring pull requests, passing checks and no force pushes (repository settings). |
+| Code-Review | Pull requests approved by someone other than their author. |
+| Maintained | Activity over 90 days; the repository is new, so this clears on its own. |
+| CII-Best-Practices | The OpenSSF Best Practices badge at [bestpractices.dev](https://www.bestpractices.dev). |
+
 ## Supported versions
 
 Security fixes go into the latest release. Please upgrade before reporting.
