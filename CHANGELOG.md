@@ -29,6 +29,12 @@ All notable changes to this project are documented here. The format follows
 - `blast-radius init --user` turns on the audit log and `audit_all`, and keeps entries for
   90 days.
 - `CLAUDE.md` with the rules for agents working in this repository.
+
+### Security
+
+- Every GitHub Action is pinned to a commit SHA, checkouts no longer keep credentials, and the
+  terragrunt download in the end-to-end tests is checked against its SHA-256.
+- CI scans the full history for secrets with gitleaks, and OpenSSF Scorecard runs weekly.
 - AWS commands are matched against the account of the active profile, read offline from the AWS
   config file (`aws_account_id`, `sso_account_id`, `role_arn`, `source_profile`) or
   `AWS_ACCOUNT_ID`, so an environment can protect a whole AWS account whatever the profile is
