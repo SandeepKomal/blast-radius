@@ -29,8 +29,21 @@ stay anonymous.
 - A failure (crash, timeout, bad input) that results in a pass instead of
   "ask" or a block.
 
+- A secret (password, token, key) that `audit_redact` should mask reaching
+  the activity log, or the dashboard serving the log to anything other than
+  the local machine.
+
 Things blast-radius documents as out of scope are not vulnerabilities, but
 are still welcome as feature requests: see [Limitations](README.md#limitations).
+
+## The activity log
+
+The activity log is a local file with mode 600 that can contain commands,
+folders and the requests typed to the agent, with personal data and secrets
+masked by default. Treat it like a shell history: keep it on encrypted
+disks, don't attach it to public issues, and use `blast-radius audit forget`
+to remove entries. [docs/privacy.md](docs/privacy.md) lists everything it can
+contain.
 
 ## Supported versions
 
