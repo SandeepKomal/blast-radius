@@ -10,6 +10,7 @@ import (
 
 	"github.com/sandeepkomal/blast-radius/internal/analyze"
 	"github.com/sandeepkomal/blast-radius/internal/policy"
+	"github.com/sandeepkomal/blast-radius/internal/redact"
 )
 
 type auditEntry struct {
@@ -44,7 +45,7 @@ type auditFinding struct {
 }
 
 // writeAudit appends one JSON line describing a checked command.
-func writeAudit(path string, req request, findings []analyze.Finding, verdicts []policy.Verdict, action policy.Action) error {
+func writeAudit(path string, mask bool, req request, findings []analyze.Finding, verdicts []policy.Verdict, action policy.Action) error {
 	path, err := expandHome(path)
 	if err != nil {
 		return err
@@ -52,6 +53,9 @@ func writeAudit(path string, req request, findings []analyze.Finding, verdicts [
 	e := auditEntry{Time: time.Now().UTC(), Tool: req.tool, Dir: req.dir, Command: req.script, Action: action, Findings: []auditFinding{}, agentInfo: req.agent}
 	if req.editPath != "" {
 		e.Command = "edit " + req.editPath
+	}
+	if mask {
+		e.Command = redact.Secrets(e.Command)
 	}
 	for i, f := range findings {
 		af := auditFinding{

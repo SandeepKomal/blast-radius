@@ -146,3 +146,24 @@ Also record shell commands that have nothing risky in them, so the
 dashboard shows everything the agent ran, not only risky commands. Off by
 default; `blast-radius init --user` turns it on. Only read from your user
 config.
+
+### `audit_prompts`
+
+Set to `false` to stop recording the requests you type to the agent. Commands
+and their results are still recorded; the dashboard then shows no task.
+Default `true`. Only read from your user config. See
+[privacy.md](privacy.md) for everything the log can contain.
+
+### `audit_redact`
+
+Masks personal data and secrets before they are written: emails, Indian
+phone numbers, PAN, Aadhaar, card numbers and IP addresses in requests and
+error messages, and passwords, tokens and keys everywhere, including
+commands. Default `true`. Only read from your user config.
+
+### `audit_retention_days`
+
+Deletes entries older than this many days, while `blast-radius ui` runs (at
+start and every hour) or when you run `blast-radius audit prune`. `0` (the
+default) keeps them. `blast-radius init --user` sets 90. Only read from your
+user config.

@@ -281,7 +281,8 @@ const userTemplate = `{
   "protect": [],
   "preview_timeout_seconds": 90,
   "audit_log": "~/.local/state/blast-radius/audit.jsonl",
-  "audit_all": true
+  "audit_all": true,
+  "audit_retention_days": 90
 }
 `
 
@@ -326,17 +327,19 @@ func hasRecordingHooks(path string) bool {
 	}
 	var settings struct {
 		Hooks map[string][]struct {
-			Hooks []any `json:"hooks"`
+			Matcher string `json:"matcher"`
+			Hooks   []any  `json:"hooks"`
 		} `json:"hooks"`
 	}
 	if json.Unmarshal(b, &settings) != nil {
 		return false
 	}
-	for event := range recordedEvents {
+	for event, matcher := range recordedEvents {
 		ok := false
 		for _, e := range settings.Hooks[event] {
 			for _, h := range e.Hooks {
-				ok = ok || isOurHook(h)
+				// A different matcher is an install from an older version.
+				ok = ok || isOurHook(h) && e.Matcher == matcher
 			}
 		}
 		if !ok {

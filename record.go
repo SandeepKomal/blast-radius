@@ -7,15 +7,17 @@ import (
 	"time"
 
 	"github.com/sandeepkomal/blast-radius/internal/policy"
+	"github.com/sandeepkomal/blast-radius/internal/redact"
 )
 
 // recordedEvents are the Claude Code hook events blast-radius only records
 // in the audit log, so the dashboard can show which agent and model ran a
-// command, for which request, and whether it ran after being checked. They
-// never print anything and never block: on UserPromptSubmit and
-// SessionStart, anything printed would be added to Claude's context.
+// command, for which request, whether it ran after being checked, and which
+// skills (such as paranoid-sre) the agent loaded. They never print anything
+// and never block: on UserPromptSubmit and SessionStart, anything printed
+// would be added to Claude's context.
 var recordedEvents = map[string]string{
-	"PostToolUse":        "Bash|PowerShell",
+	"PostToolUse":        "Bash|PowerShell|Skill",
 	"PostToolUseFailure": "Bash|PowerShell",
 	"PermissionDenied":   "Bash|PowerShell",
 	"SessionStart":       "",
@@ -50,6 +52,14 @@ type sessionEntry struct {
 	agentInfo
 }
 
+// A skill the agent loaded. Only its name is kept.
+type skillEntry struct {
+	Kind  string    `json:"kind"` // "skill"
+	Time  time.Time `json:"time"`
+	Skill string    `json:"skill"`
+	agentInfo
+}
+
 // A request the user gave the agent.
 type promptEntry struct {
 	Kind   string    `json:"kind"` // "prompt"
@@ -77,6 +87,13 @@ func recordEvent(in hookInput, stderr io.Writer) {
 	var line any
 	switch in.HookEventName {
 	case "PostToolUse", "PostToolUseFailure", "PermissionDenied":
+		if in.ToolName == "Skill" {
+			if in.HookEventName != "PostToolUse" || in.ToolInput.Skill == "" {
+				return
+			}
+			line = skillEntry{Kind: "skill", Time: now, Skill: truncate(in.ToolInput.Skill), agentInfo: in.agentInfo}
+			break
+		}
 		if in.ToolName != "Bash" && in.ToolName != "PowerShell" {
 			return
 		}
@@ -88,6 +105,9 @@ func recordEvent(in hookInput, stderr io.Writer) {
 			r.Outcome, r.Error = "interrupted", in.Error
 		case in.HookEventName == "PostToolUseFailure":
 			r.Outcome, r.Error = "failed", in.Error
+		}
+		if cfg.Redact() {
+			r.Error = redact.Text(r.Error)
 		}
 		r.Error = truncate(r.Error)
 		line = r
@@ -105,7 +125,14 @@ func recordEvent(in hookInput, stderr io.Writer) {
 		}
 		line = sessionEntry{Kind: "session", Time: now, Model: model, Source: in.Source, Dir: in.Cwd, agentInfo: in.agentInfo}
 	case "UserPromptSubmit":
-		line = promptEntry{Kind: "prompt", Time: now, Prompt: truncate(in.Prompt), agentInfo: in.agentInfo}
+		if !cfg.RecordPrompts() {
+			return
+		}
+		prompt := in.Prompt
+		if cfg.Redact() {
+			prompt = redact.Text(prompt)
+		}
+		line = promptEntry{Kind: "prompt", Time: now, Prompt: truncate(prompt), agentInfo: in.agentInfo}
 	default:
 		return
 	}

@@ -65,6 +65,7 @@ func serveUI(args []string, stdout, stderr io.Writer) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	go s.applyRetention(ctx, stderr)
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -76,6 +77,28 @@ func serveUI(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// applyRetention deletes entries older than audit_retention_days now and
+// every hour while the dashboard runs.
+func (s *uiServer) applyRetention(ctx context.Context, stderr io.Writer) {
+	for {
+		dir, _ := os.Getwd()
+		if cfg, err := policy.Load(dir); err == nil {
+			if log, enabled := s.logPath(); enabled {
+				if n, err := pruneByRetention(log, cfg.AuditRetentionDays); err != nil {
+					fmt.Fprintln(stderr, "blast-radius: retention:", err)
+				} else if n > 0 {
+					fmt.Fprintf(stderr, "blast-radius: deleted %d entries older than %d days\n", n, cfg.AuditRetentionDays)
+				}
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Hour):
+		}
+	}
 }
 
 func loopback(addr string) bool {
@@ -165,6 +188,17 @@ type uiStatus struct {
 	Policy      policy.Config   `json:"policy"`
 	Steps       []setupStep     `json:"steps"`
 	Tools       map[string]bool `json:"tools"`
+	Privacy     privacyStatus   `json:"privacy"`
+}
+
+// privacyStatus is what the dashboard's privacy card shows.
+type privacyStatus struct {
+	Redact        bool      `json:"redact"`
+	Prompts       bool      `json:"prompts"`
+	All           bool      `json:"all"`
+	RetentionDays int       `json:"retention_days"`
+	Bytes         int64     `json:"bytes"`
+	Oldest        time.Time `json:"oldest,omitempty"`
 }
 
 func (s *uiServer) status(w http.ResponseWriter, _ *http.Request) {
@@ -178,6 +212,17 @@ func (s *uiServer) status(w http.ResponseWriter, _ *http.Request) {
 	}
 	if st.Sources == nil {
 		st.Sources = []string{}
+	}
+	st.Privacy = privacyStatus{Redact: cfg.Redact(), Prompts: cfg.RecordPrompts(), All: cfg.AuditAll, RetentionDays: cfg.AuditRetentionDays}
+	if fi, err := os.Stat(log); err == nil {
+		st.Privacy.Bytes = fi.Size()
+		_ = eachLine(log, func(_ []byte, e auditLine) error {
+			if !e.Time.IsZero() {
+				st.Privacy.Oldest = e.Time
+				return errStop
+			}
+			return nil
+		})
 	}
 	if cfgErr != nil {
 		st.ConfigError = cfgErr.Error()
@@ -414,6 +459,8 @@ func readRunning(log string, now time.Time) []runningEntry {
 	sort.Slice(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
 	return out
 }
+
+var errStop = errors.New("stop")
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
