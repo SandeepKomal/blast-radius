@@ -42,7 +42,7 @@ Usage:
   blast-radius init [--user]         write a starter .blast-radius.json (or your user config)
   blast-radius config                print the policy in effect for this directory
   blast-radius ui [--addr host:port] open a local dashboard of what was checked, asked and blocked
-  blast-radius hook claude           run as a Claude Code PreToolUse hook (reads JSON on stdin)
+  blast-radius hook claude           run as a Claude Code hook (reads JSON on stdin)
   blast-radius version
 
 check exits 0 when the command can run, 10 when it needs approval, 20 when it is blocked.
@@ -101,6 +101,7 @@ type request struct {
 	shell    analyze.Shell
 	editPath string
 	dir      string
+	agent    agentInfo // who asked, when the request comes from a hook
 }
 
 // evaluate analyzes a request and applies the policy for its directory.
@@ -133,7 +134,7 @@ func evaluate(req request, run analyze.Runner, stderr io.Writer) ([]analyze.Find
 		}
 	}
 	action := policy.Strictest(verdicts)
-	if cfg.AuditLog != "" && len(findings) > 0 {
+	if cfg.AuditLog != "" && (len(findings) > 0 || cfg.AuditAll && req.agent.ToolUseID != "" && req.script != "") {
 		if err := writeAudit(cfg.AuditLog, req, findings, verdicts, action); err != nil {
 			fmt.Fprintf(stderr, "blast-radius: audit log: %v\n", err)
 		}

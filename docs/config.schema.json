@@ -57,6 +57,7 @@
       "description": "Extra program names, e.g. {\"tf\": \"terraform\"}."
     },
     "preview_timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 270 },
-    "audit_log": { "type": "string", "description": "File that gets one JSON line per risky command. Only read from your user config." }
+    "audit_log": { "type": "string", "description": "File that gets one JSON line per risky command. Only read from your user config." },
+    "audit_all": { "type": "boolean", "description": "Also record shell commands with nothing risky in them. Only read from your user config." }
   }
 }

@@ -17,7 +17,7 @@
     </a>
     <nav class="nav" aria-label="Views">
       <a href="#overview" data-view="overview"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/></svg>Overview</a>
-      <a href="#activity" data-view="activity"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h3.5l2-5 4 10 2-5H18"/></svg>Activity<span class="nav-count" id="nav-count"></span></a>
+      <a href="#activity" data-view="activity"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h3.5l2-5 4 10 2-5H18"/></svg>Activity<span class="nav-count todo" id="nav-wait" title="Waiting for your answer" hidden></span><span class="nav-count" id="nav-count"></span></a>
       <a href="#setup" data-view="setup"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l3.5 3.5L16 5.5"/></svg>Setup<span class="nav-count todo" id="setup-count" hidden></span></a>
       <a href="#rules" data-view="rules"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5l6 2.5v4.5c0 4-2.6 6.8-6 8-3.4-1.2-6-4-6-8V5z"/></svg>Rules</a>
     </nav>
@@ -81,6 +81,10 @@
 
       <div class="grid g-1-1-1">
         <article class="card">
+          <header class="card-head"><div><h2>Agents</h2><p class="muted">Which agent ran commands, with its model and task</p></div></header>
+          <div id="agents"></div>
+        </article>
+        <article class="card">
           <header class="card-head"><div><h2>By environment</h2><p class="muted">Where risky commands were aimed</p></div></header>
           <div id="by-env"></div>
         </article>
@@ -88,16 +92,18 @@
           <header class="card-head"><div><h2>By tool</h2><p class="muted">Which CLI ran them</p></div></header>
           <div id="by-tool"></div>
         </article>
-        <article class="card">
-          <header class="card-head"><div><h2>Checking now</h2><p class="muted">Previews in progress</p></div><span class="badge run" id="run-badge">0</span></header>
-          <div id="running"></div>
-        </article>
       </div>
 
-      <article class="card">
-        <header class="card-head"><div><h2>Latest blocked</h2><p class="muted">Commands blast-radius stopped</p></div><a class="link" href="#activity" data-goto-filter="deny">View all →</a></header>
-        <div id="latest-blocked"></div>
-      </article>
+      <div class="grid g-1-2">
+        <article class="card">
+          <header class="card-head"><div><h2>Right now</h2><p class="muted">Previews running and commands waiting for you</p></div><span class="badge" id="run-badge">0</span></header>
+          <div id="running"></div>
+        </article>
+        <article class="card">
+          <header class="card-head"><div><h2>Latest blocked</h2><p class="muted">Commands blast-radius stopped</p></div><a class="link" href="#activity" data-goto-filter="deny">View all →</a></header>
+          <div id="latest-blocked"></div>
+        </article>
+      </div>
     </section>
 
     <!-- Activity -->
@@ -115,11 +121,12 @@
             <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/></svg>
             <input id="search" type="search" placeholder="Search commands, folders, environments" aria-label="Search">
           </div>
+          <label class="toggle" id="safe-toggle" hidden><input type="checkbox" id="safe"> Safe commands</label>
           <span class="muted count" id="result-count"></span>
         </div>
         <div class="table-wrap">
           <table class="data">
-            <thead><tr><th>Result</th><th>Command</th><th>Tool</th><th>Environment</th><th class="num">Deletes</th><th class="num">When</th></tr></thead>
+            <thead><tr><th>Decision</th><th>What happened</th><th>Command</th><th>Agent</th><th>Environment</th><th class="num">Deletes</th><th class="num">When</th></tr></thead>
             <tbody id="rows"></tbody>
           </table>
         </div>
