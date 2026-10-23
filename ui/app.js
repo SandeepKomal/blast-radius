@@ -48,7 +48,7 @@ const RANGES = {
 const PAGE = 50;
 
 const state = {
-  entries: [], running: [], status: null,
+  entries: [], running: [], status: null, safe: load("safe", "1") === "1",
   range: load("range", "24h"), filter: "all", tool: "", query: "",
   shown: PAGE, fresh: null, selected: null, tableView: false,
 };
@@ -58,6 +58,89 @@ function load(k, d) {
 }
 function save(k, v) {
   try { localStorage.setItem("br." + k, v); } catch { /* storage unavailable */ }
+}
+
+// What the recording hooks saw: results by tool use, sessions, prompts.
+const idx = { results: new Map(), sessions: new Map(), prompts: new Map() };
+
+// ingest files one audit log line and says what kind it was.
+function ingest(line) {
+  switch (line.kind) {
+    case "result":
+      if (line.tool_use_id) idx.results.set(line.tool_use_id, line);
+      return "result";
+    case "session":
+      if (line.session_id) idx.sessions.set(line.session_id, line);
+      return "session";
+    case "prompt": {
+      if (!line.session_id) return "prompt";
+      if (!idx.prompts.has(line.session_id)) idx.prompts.set(line.session_id, []);
+      idx.prompts.get(line.session_id).push(line);
+      return "prompt";
+    }
+  }
+  state.entries.unshift(line);
+  return "check";
+}
+
+const risky = (e) => e.findings && e.findings.length > 0;
+function riskyEntries() {
+  return state.entries.filter(risky);
+}
+
+// Who ran a command: the agent, its subagent and the session's model.
+function agentOf(e) {
+  if (e.tool === "check") return { name: "blast-radius check", sub: "", model: "", session: "" };
+  const ses = idx.sessions.get(e.session_id) || {};
+  return {
+    name: "Claude Code",
+    sub: e.agent_type || (e.session_id ? "main agent" : ""),
+    model: ses.model || "",
+    session: e.session_id || "",
+  };
+}
+function agentLabel(e) {
+  const a = agentOf(e);
+  return a.sub ? a.name + " · " + a.sub : a.name;
+}
+
+// The request the user gave the agent before it ran this command.
+function taskOf(e) {
+  const list = idx.prompts.get(e.session_id);
+  if (!list) return null;
+  if (e.prompt_id) {
+    const byId = list.find((p) => p.prompt_id === e.prompt_id);
+    if (byId) return byId;
+  }
+  let best = null;
+  for (const p of list) if (p.time <= e.time && (!best || p.time > best.time)) best = p;
+  return best;
+}
+
+// What happened after blast-radius decided. Ask decisions are answered in
+// Claude Code, so a command asked about that never reports a result was
+// declined (or its session ended).
+const WAIT_MS = 15 * 60e3;
+function nextOf(e) {
+  if (!e.tool_use_id) return null;
+  const r = idx.results.get(e.tool_use_id);
+  if (r) {
+    if (r.outcome === "ran") return { id: "ran", label: e.action === "ask" ? "You approved · ran" : "Ran", r };
+    if (r.outcome === "failed") return { id: "failed", label: e.action === "ask" ? "You approved · failed" : "Ran · failed", r };
+    if (r.outcome === "interrupted") return { id: "failed", label: "Interrupted", r };
+    if (r.outcome === "denied") return { id: "notrun", label: "Denied by auto mode", r };
+  }
+  if (e.action === "deny") return { id: "notrun", label: "Not run" };
+  const age = Date.now() - new Date(e.time).getTime();
+  if (!idx.results.size) return null; // recording hooks not installed
+  if (e.action === "ask") return age < WAIT_MS ? { id: "waiting", label: "Waiting for you" } : { id: "notrun", label: "Not run", hint: "You declined it, or the session ended" };
+  return age < WAIT_MS ? { id: "running", label: "Running" } : { id: "unknown", label: "No result" };
+}
+const NEXT_ICON = { ran: "✓", failed: "!", notrun: "✕", waiting: "…", running: "…", unknown: "?" };
+function nextChip(e) {
+  const n = nextOf(e);
+  if (!n) return h("span", { class: "muted" }, "–");
+  return h("span", { class: "then t-" + n.id, title: n.hint || (n.r && n.r.error) || "" }, h("i", { "aria-hidden": "true" }, NEXT_ICON[n.id]), n.label);
 }
 
 // Helpers
@@ -154,8 +237,8 @@ function sparkline(values, cls) {
 }
 
 function renderKPIs() {
-  const cur = fill(buckets(state.range), state.entries);
-  const prev = fill(buckets(state.range, 1), state.entries);
+  const cur = fill(buckets(state.range), riskyEntries());
+  const prev = fill(buckets(state.range, 1), riskyEntries());
   const sum = (bs, f) => bs.reduce((n, b) => n + f(b), 0);
   const tiles = [
     { label: "Risky commands", f: total, cls: "f-all", key: "k-all" },
@@ -197,7 +280,7 @@ const tip = {
 };
 
 function renderTimeChart() {
-  const bs = fill(buckets(state.range), state.entries);
+  const bs = fill(buckets(state.range), riskyEntries());
   const box = $("ts-chart");
   const W = Math.max(280, box.clientWidth), H = box.clientHeight || 260;
   const m = { t: 8, r: 4, b: 26, l: 32 };
@@ -288,7 +371,57 @@ function renderMix(list) {
     h("ul", { class: "mix-list" }, OUTCOMES.map((o) => h("li", {},
       icon(o.id), h("span", {}, o.label), h("b", {}, fmt.format(n[o.id])),
       h("span", { class: "pct" }, all ? Math.round((n[o.id] / all) * 100) + "%" : "–")))),
-    h("div", { class: "mix-extra" }, h("b", {}, fmt.format(saved)), " resources would have been deleted by the commands blast-radius blocked."));
+    h("div", { class: "mix-extra" }, h("b", {}, fmt.format(saved)), " resources would have been deleted by the commands blast-radius blocked."),
+    askSummary(list));
+}
+
+// How the commands blast-radius asked about were answered.
+function askSummary(list) {
+  const asked = list.filter((e) => e.action === "ask" && e.tool_use_id);
+  if (!asked.length || !idx.results.size) return null;
+  const n = { yes: 0, no: 0, waiting: 0 };
+  for (const e of asked) {
+    const x = nextOf(e);
+    if (!x) continue;
+    if (x.id === "ran" || x.id === "failed") n.yes++;
+    else if (x.id === "waiting") n.waiting++;
+    else n.no++;
+  }
+  return h("div", { class: "mix-extra" }, "Of ", h("b", {}, fmt.format(asked.length)), " asked: ",
+    h("b", {}, fmt.format(n.yes)), " you approved, ", h("b", {}, fmt.format(n.no)), " not run",
+    n.waiting ? [", ", h("b", {}, fmt.format(n.waiting)), " waiting for you"] : null, ".");
+}
+
+// Agents: one row per Claude Code session and subagent.
+function renderAgents(list) {
+  const groups = new Map();
+  for (const e of list) {
+    const a = agentOf(e);
+    const k = (a.session || a.name) + "\u0000" + a.sub;
+    if (!groups.has(k)) groups.set(k, { a, deny: 0, ask: 0, pass: 0, last: e, n: 0 });
+    const g = groups.get(k);
+    g.n++;
+    if (e.action in g) g[e.action]++;
+    if (e.time > g.last.time) g.last = e;
+  }
+  const rows = [...groups.values()].sort((x, y) => (x.last.time < y.last.time ? 1 : -1)).slice(0, 4);
+  if (!rows.length) {
+    $("agents").replaceChildren(h("div", { class: "empty-mini" }, "No agent activity in the " + RANGES[state.range].label + "."));
+    return;
+  }
+  $("agents").replaceChildren(h("ul", { class: "agents" }, rows.map((g) => {
+    const task = taskOf(g.last);
+    return h("li", { onclick: () => openDrawer(g.last), title: "Open the latest command" },
+      h("div", { class: "agent-top" },
+        h("span", { class: "avatar", "aria-hidden": "true" }, g.a.sub && g.a.sub !== "main agent" ? g.a.sub[0].toUpperCase() : "C"),
+        h("div", { class: "agent-name" },
+          h("b", {}, g.a.name), g.a.sub && h("span", { class: "tag" }, g.a.sub),
+          h("div", { class: "agent-meta" }, [g.a.model, g.a.session && "session " + g.a.session.slice(0, 8)].filter(Boolean).join(" · ") || "\u00a0")),
+        h("span", { class: "when", "data-ago": g.last.time }, ago(g.last.time))),
+      task && h("p", { class: "agent-task", title: task.prompt }, "“" + task.prompt + "”"),
+      h("div", { class: "agent-counts" },
+        OUTCOMES.filter((o) => g[o.id]).map((o) => h("span", { class: "count-pill" }, icon(o.id), fmt.format(g[o.id]), " ", o.label.toLowerCase()))));
+  })));
 }
 
 function renderBreakdown(el, list, by, emptyText) {
@@ -323,15 +456,23 @@ function renderBreakdown(el, list, by, emptyText) {
 
 function renderRunning() {
   const r = state.running;
-  $("run-badge").textContent = r.length;
-  $("run-badge").classList.toggle("active", r.length > 0);
-  if (!r.length) {
+  const waiting = state.entries.filter((e) => e.action === "ask" && (nextOf(e) || {}).id === "waiting");
+  const n = r.length + waiting.length;
+  $("run-badge").textContent = n;
+  $("run-badge").classList.toggle("active", n > 0);
+  $("nav-wait").hidden = waiting.length === 0;
+  $("nav-wait").textContent = waiting.length;
+  if (!n) {
     $("running").replaceChildren(h("div", { class: "empty-mini" },
-      h("div", { class: "art", "aria-hidden": "true" }, h("span"), h("span")), "Idle. Previews show here while they run."));
+      h("div", { class: "art", "aria-hidden": "true" }, h("span"), h("span")), "Idle. Previews and commands waiting for your answer show here."));
     return;
   }
-  $("running").replaceChildren(h("ul", { class: "mini" }, r.map((x) =>
-    h("li", {}, h("span", { class: "pill run" }, s("svg", { viewBox: "0 0 16 16", "aria-hidden": "true", width: 12 }, s("circle", { cx: 8, cy: 8, r: 6 })), "Checking"),
+  $("running").replaceChildren(h("ul", { class: "mini" },
+    waiting.map((e) => h("li", { class: "click", onclick: () => openDrawer(e) },
+      h("span", { class: "then t-waiting" }, h("i", { "aria-hidden": "true" }, "…"), "Waiting for you"),
+      h("span", { class: "mono", title: e.command }, e.command),
+      h("span", { class: "when", "data-ago": e.time }, ago(e.time)))),
+    r.map((x) => h("li", {}, h("span", { class: "pill run" }, s("svg", { viewBox: "0 0 16 16", "aria-hidden": "true", width: 12 }, s("circle", { cx: 8, cy: 8, r: 6 })), "Checking"),
       h("span", { class: "mono", title: x.command }, x.command),
       h("span", { class: "when", "data-ago": x.started }, ago(x.started))))));
 }
@@ -356,14 +497,17 @@ function renderLatestBlocked(list) {
 function filtered() {
   const q = state.query.toLowerCase();
   return state.entries.filter((e) => inRange(e)
+    && (state.safe || risky(e))
     && (state.filter === "all" || e.action === state.filter)
     && (!state.tool || toolsOf(e).includes(state.tool))
-    && (!q || [e.command, e.dir, envOf(e)].some((x) => (x || "").toLowerCase().includes(q))));
+    && (!q || [e.command, e.dir, envOf(e), agentLabel(e), agentOf(e).model, (taskOf(e) || {}).prompt]
+      .some((x) => (x || "").toLowerCase().includes(q))));
 }
 
 function renderTable() {
   const list = filtered();
-  const inPeriod = state.entries.filter(inRange).length;
+  const inPeriod = state.entries.filter((e) => inRange(e) && (state.safe || risky(e))).length;
+  $("safe-toggle").hidden = !state.entries.some((e) => !risky(e));
   $("result-count").textContent = list.length === inPeriod
     ? fmt.format(list.length) + " in the " + RANGES[state.range].label
     : fmt.format(list.length) + " of " + fmt.format(inPeriod) + " in the " + RANGES[state.range].label;
@@ -375,9 +519,10 @@ function renderTable() {
       onclick: () => openDrawer(e),
       onkeydown: (ev) => { if (ev.key === "Enter") openDrawer(e); },
     },
-      h("td", {}, pill(e.action)),
+      h("td", {}, risky(e) ? pill(e.action) : h("span", { class: "pill safe" }, "Safe")),
+      h("td", {}, nextChip(e)),
       h("td", { class: "cmd", title: e.command }, e.command),
-      h("td", {}, toolsOf(e).join(", ")),
+      h("td", { class: "agent", title: [agentLabel(e), agentOf(e).model].filter(Boolean).join(" · ") }, agentLabel(e)),
       h("td", { class: "env", title: envOf(e) }, envOf(e) || "–"),
       h("td", { class: "num" }, lost(e) || "–"),
       h("td", { class: "num when", "data-ago": e.time, title: new Date(e.time).toLocaleString() }, ago(e.time)));
@@ -403,18 +548,23 @@ function renderTable() {
 
 // Drawer with one command's details.
 
-function openDrawer(e) {
+function openDrawer(e, refocus = true) {
   state.selected = key(e);
   const check = "blast-radius check" + (e.dir ? " -C " + shellQuote(e.dir) : "") + " " + shellQuote(e.command);
   $("drawer-pill").replaceChildren(pill(e.action), h("span", { class: "when" }, "  " + new Date(e.time).toLocaleString()));
+  const a = agentOf(e), task = taskOf(e);
   $("drawer-body").replaceChildren(
     h("section", {}, h("h3", {}, "Command"), codeBlock(e.command)),
-    h("section", {}, h("h3", {}, "Details"), h("dl", { class: "kv" },
-      h("dt", {}, "Folder"), h("dd", { class: "mono" }, e.dir || "–"),
-      h("dt", {}, "From"), h("dd", {}, e.tool === "check" ? "blast-radius check" : "Claude Code · " + e.tool),
-      h("dt", {}, "Environment"), h("dd", {}, envOf(e) || "–"),
-      h("dt", {}, "When"), h("dd", {}, new Date(e.time).toLocaleString() + " (" + ago(e.time) + ")"))),
-    h("section", {}, h("h3", {}, "What blast-radius found"), ...(e.findings || []).map((f) =>
+    task && h("section", {}, h("h3", {}, "Task"), h("blockquote", { class: "task" }, task.prompt)),
+    h("section", {}, h("h3", {}, "What happened"), timeline(e)),
+    h("section", {}, h("h3", {}, "Agent"), h("dl", { class: "kv" },
+      h("dt", {}, "Agent"), h("dd", {}, agentLabel(e)),
+      h("dt", {}, "Model"), h("dd", {}, a.model || (a.session ? "not recorded (session started before the recording hooks)" : "–")),
+      h("dt", {}, "Session"), h("dd", { class: "mono" }, a.session || "–"),
+      e.permission_mode && [h("dt", {}, "Permissions"), h("dd", {}, e.permission_mode)],
+      h("dt", {}, "Tool"), h("dd", {}, e.tool),
+      h("dt", {}, "Folder"), h("dd", { class: "mono" }, e.dir || "–"))),
+    risky(e) && h("section", {}, h("h3", {}, "What blast-radius found"), ...(e.findings || []).map((f) =>
       h("div", { class: "finding" },
         h("div", { class: "finding-top" }, pill(f.action), h("b", {}, f.tool),
           f.environment && h("span", { class: "tag" }, f.environment),
@@ -428,9 +578,30 @@ function openDrawer(e) {
   $("drawer").classList.add("open");
   $("drawer").setAttribute("aria-hidden", "false");
   $("scrim").hidden = false;
-  $("drawer-close").focus();
+  if (refocus) $("drawer-close").focus();
   renderTable();
 }
+// timeline lists the steps a command went through.
+function timeline(e) {
+  const steps = [];
+  const at = (t) => new Date(t).toLocaleTimeString();
+  steps.push({ id: "info", title: agentLabel(e) + " wanted to run it", time: at(e.time) });
+  if (!risky(e)) steps.push({ id: "pass", title: "blast-radius found nothing risky", detail: "Claude Code's own permission rules applied." });
+  else if (e.action === "deny") steps.push({ id: "deny", title: "blast-radius blocked it", detail: (e.findings.find((f) => f.reason) || {}).reason });
+  else if (e.action === "ask") steps.push({ id: "ask", title: "blast-radius asked you first", detail: (e.findings.find((f) => f.reason) || {}).reason });
+  else steps.push({ id: "pass", title: "blast-radius allowed it", detail: (e.findings.find((f) => f.reason) || {}).reason });
+  const n = nextOf(e);
+  if (n) {
+    const r = n.r;
+    const detail = r ? [r.duration_ms ? "took " + (r.duration_ms / 1000).toFixed(1) + "s" : "", r.error || ""].filter(Boolean).join(" · ") : n.hint;
+    steps.push({ id: "t-" + n.id, title: n.label, detail, time: r ? at(r.time) : "" });
+  }
+  return h("ol", { class: "timeline" }, steps.map((x) => h("li", { class: x.id },
+    h("i", { "aria-hidden": "true" }),
+    h("div", {}, h("div", { class: "tl-top" }, h("b", {}, x.title), x.time && h("span", { class: "when" }, x.time)),
+      x.detail && h("p", {}, x.detail)))));
+}
+
 function closeDrawer() {
   state.selected = null;
   $("drawer").classList.remove("open");
@@ -515,7 +686,7 @@ function renderRules(st) {
 
 const VIEWS = {
   overview: ["Overview", "What your agent tried to run, and what blast-radius did about it."],
-  activity: ["Activity", "Every risky command, newest first. Select one for details."],
+  activity: ["Activity", "Every command blast-radius checked, newest first. Select one for details."],
   setup: ["Setup", "Install blast-radius and paranoid-sre, in order."],
   rules: ["Rules", "What happens in each environment."],
 };
@@ -538,9 +709,10 @@ function renderAll() {
   $("nav-count").textContent = list.length ? fmt.format(list.length) : "";
   renderKPIs();
   renderTimeChart();
-  renderMix(list);
-  renderBreakdown($("by-env"), list, (e) => [envOf(e) || "unknown"], "No environments yet.");
-  renderBreakdown($("by-tool"), list, toolsOf, "No tools yet.");
+  renderMix(list.filter(risky));
+  renderBreakdown($("by-env"), list.filter(risky), (e) => [envOf(e) || "unknown"], "No environments yet.");
+  renderBreakdown($("by-tool"), list.filter(risky), toolsOf, "No tools yet.");
+  renderAgents(list);
   renderLatestBlocked(list);
   renderRunning();
   renderTable();
@@ -573,9 +745,12 @@ function connect() {
   es.addEventListener("open", () => setLive("live", "Live"));
   es.addEventListener("entry", (ev) => {
     const e = JSON.parse(ev.data);
-    state.entries.unshift(e);
-    state.fresh = key(e);
+    if (ingest(e) === "check") state.fresh = key(e);
     renderAll();
+    if (state.selected && $("drawer").classList.contains("open")) {
+      const open = state.entries.find((x) => key(x) === state.selected);
+      if (open) openDrawer(open, false);
+    }
   });
   es.addEventListener("running", (ev) => {
     state.running = JSON.parse(ev.data);
@@ -606,6 +781,8 @@ async function start() {
     state.shown = PAGE;
     renderTable();
   });
+  $("safe").checked = state.safe;
+  $("safe").addEventListener("change", (e) => { state.safe = e.target.checked; save("safe", state.safe ? "1" : "0"); state.shown = PAGE; renderTable(); });
   $("tool-filter").addEventListener("change", (e) => { state.tool = e.target.value; renderTable(); });
   $("search").addEventListener("input", (e) => { state.query = e.target.value.trim(); state.shown = PAGE; renderTable(); });
   $("more").addEventListener("click", () => { state.shown += PAGE; renderTable(); });
@@ -627,7 +804,7 @@ async function start() {
   setRange(state.range);
   try {
     const a = await getJSON("api/activity");
-    state.entries = a.entries.reverse();
+    for (const line of a.entries) ingest(line);
     state.running = a.running;
   } catch {
     setLive("off", "Offline");
@@ -638,6 +815,7 @@ async function start() {
   connect();
   setInterval(() => {
     for (const t of document.querySelectorAll("[data-ago]")) t.textContent = ago(t.dataset.ago);
+    renderRunning();
   }, 15000);
   setInterval(() => loadStatus().catch(() => {}), 10000);
 }

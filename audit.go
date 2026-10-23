@@ -19,6 +19,18 @@ type auditEntry struct {
 	Command  string         `json:"command"`
 	Action   policy.Action  `json:"action"`
 	Findings []auditFinding `json:"findings"`
+	agentInfo
+}
+
+// agentInfo identifies the Claude Code session, subagent and prompt a
+// command came from, so the dashboard can tie it to what happened next.
+type agentInfo struct {
+	SessionID      string `json:"session_id,omitempty"`
+	PromptID       string `json:"prompt_id,omitempty"`
+	ToolUseID      string `json:"tool_use_id,omitempty"`
+	AgentID        string `json:"agent_id,omitempty"`
+	AgentType      string `json:"agent_type,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
 }
 
 type auditFinding struct {
@@ -37,7 +49,7 @@ func writeAudit(path string, req request, findings []analyze.Finding, verdicts [
 	if err != nil {
 		return err
 	}
-	e := auditEntry{Time: time.Now().UTC(), Tool: req.tool, Dir: req.dir, Command: req.script, Action: action}
+	e := auditEntry{Time: time.Now().UTC(), Tool: req.tool, Dir: req.dir, Command: req.script, Action: action, Findings: []auditFinding{}, agentInfo: req.agent}
 	if req.editPath != "" {
 		e.Command = "edit " + req.editPath
 	}
@@ -56,7 +68,13 @@ func writeAudit(path string, req request, findings []analyze.Finding, verdicts [
 		}
 		e.Findings = append(e.Findings, af)
 	}
-	line, err := json.Marshal(e)
+	return appendLine(path, e)
+}
+
+// appendLine writes v as one JSON line at the end of the log, in a single
+// write so lines from hooks running at the same time don't interleave.
+func appendLine(path string, v any) error {
+	line, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}

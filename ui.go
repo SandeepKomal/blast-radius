@@ -196,6 +196,11 @@ func (s *uiServer) status(w http.ResponseWriter, _ *http.Request) {
 		}
 		if h, err := findOurHook(p); err == nil && h != nil {
 			hook.Done, hook.Detail = true, p
+			if !hasRecordingHooks(p) {
+				// An older install: commands are checked, but the dashboard
+				// can't tell which agent ran them or whether they ran.
+				hook.Done, hook.Detail = false, p+" (installed by an older version; install again to record agents and results)"
+			}
 			break
 		}
 	}

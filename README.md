@@ -126,10 +126,11 @@ blast-radius ui      # http://127.0.0.1:7357
 A dashboard on your own machine that updates as your agent works:
 
 - **Overview**: risky commands, blocks and approvals over the last 24 hours, 7 or 30 days, broken
-  down by environment and tool, with the resources blocked commands would have deleted and the
-  previews running right now.
-- **Activity**: every risky command in a searchable table; select one to see what it would have
-  deleted and the `blast-radius check` command to preview it again.
+  down by agent, environment and tool, with the resources blocked commands would have deleted,
+  the previews running right now and the commands waiting for your answer.
+- **Activity**: every command in a searchable table, with what happened next (ran, failed, not
+  run, waiting for you), the agent and model that ran it and the task it was working on; select
+  one for a timeline and what it would have deleted.
 - **Setup**: blast-radius and paranoid-sre, step by step, each step ticking itself off.
 - **Rules**: what is allowed, asked about or blocked in each environment.
 
