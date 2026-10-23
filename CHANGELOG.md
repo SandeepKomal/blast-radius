@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-23
+
 ### Fixed
 
 - `blast-radius doctor` no longer writes its self-test commands to the
@@ -77,6 +79,7 @@ First release.
 - Fail-closed behaviour: hook errors, timeouts, bad input and config errors never pass.
 - Release archives for Linux, macOS and Windows with signed build provenance.
 
-[Unreleased]: https://github.com/SandeepKomal/blast-radius/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/SandeepKomal/blast-radius/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/SandeepKomal/blast-radius/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/SandeepKomal/blast-radius/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/SandeepKomal/blast-radius/releases/tag/v0.1.0
