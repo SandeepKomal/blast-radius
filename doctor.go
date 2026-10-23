@@ -299,24 +299,27 @@ func initConfig(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	path, content := policy.FileName, projectTemplate
+	// A repository's .blast-radius.json is meant to be committed; the user
+	// config can name production accounts and clusters, so only its owner
+	// may read it.
+	path, content, dirMode, fileMode := policy.FileName, projectTemplate, os.FileMode(0o755), os.FileMode(0o644)
 	if *user {
 		p, err := policy.UserConfigPath()
 		if err != nil {
 			fmt.Fprintln(stderr, "blast-radius:", err)
 			return 1
 		}
-		path, content = p, userTemplate
+		path, content, dirMode, fileMode = p, userTemplate, 0o700, 0o600
 	}
 	if _, err := os.Stat(path); err == nil {
 		fmt.Fprintf(stderr, "blast-radius: %s already exists\n", path)
 		return 1
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), dirMode); err != nil {
 		fmt.Fprintln(stderr, "blast-radius:", err)
 		return 1
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), fileMode); err != nil {
 		fmt.Fprintln(stderr, "blast-radius:", err)
 		return 1
 	}

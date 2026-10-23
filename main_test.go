@@ -309,6 +309,12 @@ func TestInit(t *testing.T) {
 	if code := initConfig([]string{"--user"}, io.Discard, io.Discard); code != 0 {
 		t.Fatal("init --user failed")
 	}
+	if p, _ := policy.UserConfigPath(); runtime.GOOS != "windows" {
+		// The user config can name production accounts; only its owner may read it.
+		if st, err := os.Stat(p); err != nil || st.Mode().Perm() != 0o600 {
+			t.Errorf("user config mode: %v %v", st.Mode().Perm(), err)
+		}
+	}
 	p, _ := policy.UserConfigPath()
 	b, _ = os.ReadFile(p)
 	if _, err := policy.Parse(b, policy.Default()); err != nil {
