@@ -123,10 +123,16 @@ stricter, so an agent can't relax the rules by writing one. See
 blast-radius ui      # http://127.0.0.1:7357
 ```
 
-A page on your own machine that shows, live, what the agent tried to run and what blast-radius
-did with it: allowed, asked you or blocked, with the resources each command would have deleted
-and the previews still running. It also walks you through setting up blast-radius and
-paranoid-sre in order, ticking off each step as it finds it done, and shows the rules in effect.
+A dashboard on your own machine that updates as your agent works:
+
+- **Overview**: risky commands, blocks and approvals over the last 24 hours, 7 or 30 days, broken
+  down by agent, environment and tool, with the resources blocked commands would have deleted,
+  the previews running right now and the commands waiting for your answer.
+- **Activity**: every command in a searchable table, with what happened next (ran, failed, not
+  run, waiting for you), the agent and model that ran it and the task it was working on; select
+  one for a timeline and what it would have deleted.
+- **Setup**: blast-radius and paranoid-sre, step by step, each step ticking itself off.
+- **Rules**: what is allowed, asked about or blocked in each environment.
 
 ![The blast-radius dashboard](docs/dashboard.png)
 

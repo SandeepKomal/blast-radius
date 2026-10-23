@@ -31,6 +31,17 @@
   on older versions a failing hook lets the call through, so keep Claude Code
   up to date.
 
+The same command is also registered, without `onFailure` and with a 10 second
+timeout, for `SessionStart`, `UserPromptSubmit`, `PostToolUse`,
+`PostToolUseFailure` and `PermissionDenied`. Those hooks never decide
+anything and never print anything: when you have an
+[audit log](configuration.md#audit_log), they record which model a session
+runs, the request you gave the agent, and whether each checked shell command
+then ran, failed or was denied by auto mode. `blast-radius ui` uses this to
+show which agent ran a command, for which task, and whether you approved it.
+Claude Code has no hook for a permission prompt you decline, so a command
+blast-radius asked about that never reports a result is shown as not run.
+
 ## A command's path through blast-radius
 
 1. **Parse.** The command line is split into simple commands the way a shell

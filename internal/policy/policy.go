@@ -77,6 +77,8 @@ type Config struct {
 	PreviewTimeoutSeconds int               `json:"preview_timeout_seconds,omitempty"`
 	// AuditLog is a file that gets one JSON line per risky command.
 	AuditLog string `json:"audit_log,omitempty"`
+	// AuditAll also records shell commands with nothing risky in them.
+	AuditAll bool `json:"audit_all,omitempty"`
 
 	// Sources are the files the config came from; empty for the built-in one.
 	Sources []string `json:"-"`
@@ -206,6 +208,7 @@ func Parse(b []byte, base Config) (Config, error) {
 		cfg.Aliases[k] = v
 	}
 	cfg.AuditLog = raw.AuditLog
+	cfg.AuditAll = raw.AuditAll
 	if raw.PreviewTimeoutSeconds != 0 {
 		if raw.PreviewTimeoutSeconds < 1 || raw.PreviewTimeoutSeconds > MaxPreviewTimeout {
 			return base, fmt.Errorf("preview_timeout_seconds must be between 1 and %d", MaxPreviewTimeout)

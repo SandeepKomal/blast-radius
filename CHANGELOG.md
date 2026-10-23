@@ -8,10 +8,16 @@ All notable changes to this project are documented here. The format follows
 
 ### Added
 
-- `blast-radius ui`: a dashboard on `127.0.0.1` that shows, as they happen, the commands that
-  were allowed, asked about or blocked, the previews still running, a setup checklist for
-  blast-radius and paranoid-sre, and the rules in effect. It reads the audit log.
-- `blast-radius init --user` turns on the audit log.
+- `blast-radius ui`: a dashboard on `127.0.0.1` with KPIs, decisions over time, breakdowns by
+  environment and tool, the previews still running, a searchable activity table with details for
+  each command, a setup checklist for blast-radius and paranoid-sre, and the rules in effect. It
+  reads the audit log and updates live.
+- The dashboard shows which agent and model ran each command, the request it was working on,
+  and what happened after the check: ran, failed, not run, or waiting for your answer.
+  `blast-radius install` adds hooks for `SessionStart`, `UserPromptSubmit`, `PostToolUse`,
+  `PostToolUseFailure` and `PermissionDenied` that only record this; run it again to get them.
+- `audit_all` also records commands with nothing risky in them.
+- `blast-radius init --user` turns on the audit log and `audit_all`.
 - AWS commands are matched against the account of the active profile, read offline from the AWS
   config file (`aws_account_id`, `sso_account_id`, `role_arn`, `source_profile`) or
   `AWS_ACCOUNT_ID`, so an environment can protect a whole AWS account whatever the profile is

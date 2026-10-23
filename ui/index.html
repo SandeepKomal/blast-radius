@@ -9,114 +9,202 @@
 <script src="app.js" defer></script>
 </head>
 <body>
-<header class="nav">
-  <div class="nav-inner">
-    <a class="brand" href="#top" aria-label="blast-radius home">
+<div class="app">
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="blast-radius overview">
       <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="14" class="ring r3"/><circle cx="16" cy="16" r="9" class="ring r2"/><circle cx="16" cy="16" r="4" class="core"/></svg>
       <span>blast-radius</span>
     </a>
-    <nav class="links" aria-label="Sections">
-      <a href="#activity">Activity</a>
-      <a href="#start">Get started</a>
-      <a href="#rules">Rules</a>
+    <nav class="nav" aria-label="Views">
+      <a href="#overview" data-view="overview"><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="6" height="6" rx="1.5"/><rect x="11" y="3" width="6" height="6" rx="1.5"/><rect x="3" y="11" width="6" height="6" rx="1.5"/><rect x="11" y="11" width="6" height="6" rx="1.5"/></svg>Overview</a>
+      <a href="#activity" data-view="activity"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h3.5l2-5 4 10 2-5H18"/></svg>Activity<span class="nav-count todo" id="nav-wait" title="Waiting for your answer" hidden></span><span class="nav-count" id="nav-count"></span></a>
+      <a href="#setup" data-view="setup"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 10.5l3.5 3.5L16 5.5"/></svg>Setup<span class="nav-count todo" id="setup-count" hidden></span></a>
+      <a href="#rules" data-view="rules"><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.5l6 2.5v4.5c0 4-2.6 6.8-6 8-3.4-1.2-6-4-6-8V5z"/></svg>Rules</a>
     </nav>
-    <span class="live" id="live" data-state="connecting"><i></i><span>Connecting</span></span>
-  </div>
-</header>
+    <div class="side-block">
+      <p class="side-title">Protection</p>
+      <ul class="health" id="health">
+        <li><i class="dot"></i>Hook<span>…</span></li>
+        <li><i class="dot"></i>Activity log<span>…</span></li>
+        <li><i class="dot"></i>paranoid-sre<span>…</span></li>
+      </ul>
+    </div>
+    <div class="side-foot">
+      <span id="version">…</span>
+      <span>Local only · nothing leaves this machine</span>
+    </div>
+  </aside>
 
-<main id="top">
-  <section class="hero">
-    <p class="eyebrow">Running on this machine · <span id="version">…</span></p>
-    <h1>See every command<br>before it breaks something.</h1>
-    <p class="lede">What your AI agent tried to run against your infrastructure, what blast-radius let through, what it asked you about, and what it stopped.</p>
+  <div class="main">
+    <header class="topbar">
+      <div>
+        <h1 id="title">Overview</h1>
+        <p id="subtitle">What your agent tried to run, and what blast-radius did about it.</p>
+      </div>
+      <div class="top-actions">
+        <div class="segmented" id="range" role="radiogroup" aria-label="Time range">
+          <button role="radio" aria-checked="true" data-range="24h">24h</button>
+          <button role="radio" aria-checked="false" data-range="7d">7 days</button>
+          <button role="radio" aria-checked="false" data-range="30d">30 days</button>
+        </div>
+        <span class="live" id="live" data-state="connecting"><i></i><span>Connecting</span></span>
+      </div>
+    </header>
 
     <div class="banner" id="log-banner" hidden>
-      <div>
-        <strong>The activity log is off.</strong>
-        <span>blast-radius is still protecting you, but it isn't recording anything for this page to show.</span>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M10 6v5M10 14v.01"/></svg>
+      <div><strong>The activity log is off.</strong> blast-radius still protects you, but records nothing for this dashboard.</div>
+      <a href="#setup" class="btn">Turn it on</a>
+    </div>
+
+    <!-- Overview -->
+    <section class="view" id="view-overview">
+      <div class="kpis" id="kpis"></div>
+
+      <div class="grid g-3-1">
+        <article class="card">
+          <header class="card-head">
+            <div><h2>Decisions over time</h2><p class="muted" id="ts-caption"></p></div>
+            <div class="card-tools">
+              <div class="legend" id="ts-legend"></div>
+              <button class="ghost" id="ts-toggle" aria-pressed="false">Table</button>
+            </div>
+          </header>
+          <div class="chart" id="ts-chart"></div>
+          <div class="table-wrap" id="ts-table" hidden></div>
+        </article>
+        <article class="card">
+          <header class="card-head"><div><h2>Outcome</h2><p class="muted">Share of risky commands</p></div></header>
+          <div id="mix"></div>
+        </article>
       </div>
-      <a class="button" href="#step-log">Turn it on</a>
-    </div>
 
-    <div class="stats" role="list">
-      <div class="stat" role="listitem" data-kind="deny"><span class="num" id="n-deny">0</span><span class="label">Blocked</span></div>
-      <div class="stat" role="listitem" data-kind="ask"><span class="num" id="n-ask">0</span><span class="label">Asked you</span></div>
-      <div class="stat" role="listitem" data-kind="allow"><span class="num" id="n-allow">0</span><span class="label">Allowed</span></div>
-      <div class="stat" role="listitem" data-kind="running"><span class="num" id="n-running">0</span><span class="label">Checking now</span></div>
-    </div>
-    <p class="fine">Counts cover the last 24 hours.</p>
-  </section>
+      <div class="grid g-1-1-1">
+        <article class="card">
+          <header class="card-head"><div><h2>Agents</h2><p class="muted">Which agent ran commands, with its model and task</p></div></header>
+          <div id="agents"></div>
+        </article>
+        <article class="card">
+          <header class="card-head"><div><h2>By environment</h2><p class="muted">Where risky commands were aimed</p></div></header>
+          <div id="by-env"></div>
+        </article>
+        <article class="card">
+          <header class="card-head"><div><h2>By tool</h2><p class="muted">Which CLI ran them</p></div></header>
+          <div id="by-tool"></div>
+        </article>
+      </div>
 
-  <section class="section" id="now" hidden>
-    <div class="section-head"><h2>Checking now</h2><p>Previews in progress. The agent waits until each one finishes.</p></div>
-    <div class="list" id="running"></div>
-  </section>
+      <div class="grid g-1-2">
+        <article class="card">
+          <header class="card-head"><div><h2>Right now</h2><p class="muted">Previews running and commands waiting for you</p></div><span class="badge" id="run-badge">0</span></header>
+          <div id="running"></div>
+        </article>
+        <article class="card">
+          <header class="card-head"><div><h2>Latest blocked</h2><p class="muted">Commands blast-radius stopped</p></div><a class="link" href="#activity" data-goto-filter="deny">View all →</a></header>
+          <div id="latest-blocked"></div>
+        </article>
+      </div>
+    </section>
 
-  <section class="section" id="activity">
-    <div class="section-head row">
-      <div><h2>Activity</h2><p>Newest first. Reads and other harmless commands pass without being recorded.</p></div>
-      <div class="controls">
-        <div class="segmented" role="tablist" aria-label="Filter">
-          <button role="tab" aria-selected="true" data-filter="all">All</button>
-          <button role="tab" aria-selected="false" data-filter="deny">Blocked</button>
-          <button role="tab" aria-selected="false" data-filter="ask">Asked</button>
-          <button role="tab" aria-selected="false" data-filter="allow">Allowed</button>
+    <!-- Activity -->
+    <section class="view" id="view-activity" hidden>
+      <article class="card flush">
+        <div class="toolbar">
+          <div class="segmented" id="filter" role="radiogroup" aria-label="Result">
+            <button role="radio" aria-checked="true" data-filter="all">All</button>
+            <button role="radio" aria-checked="false" data-filter="deny">Blocked</button>
+            <button role="radio" aria-checked="false" data-filter="ask">Asked</button>
+            <button role="radio" aria-checked="false" data-filter="pass">Allowed</button>
+          </div>
+          <select id="tool-filter" aria-label="Tool"><option value="">All tools</option></select>
+          <div class="search-box">
+            <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/></svg>
+            <input id="search" type="search" placeholder="Search commands, folders, environments" aria-label="Search">
+          </div>
+          <label class="toggle" id="safe-toggle" hidden><input type="checkbox" id="safe"> Safe commands</label>
+          <span class="muted count" id="result-count"></span>
         </div>
-        <input class="search" id="search" type="search" placeholder="Search commands" aria-label="Search commands">
-      </div>
-    </div>
-    <div class="list" id="feed"></div>
-    <div class="empty" id="empty" hidden>
-      <div class="empty-art" aria-hidden="true"><span></span><span></span><span></span></div>
-      <h3 id="empty-title">Nothing yet</h3>
-      <p id="empty-text">When your agent runs <code>terraform apply</code>, <code>kubectl delete</code> or <code>helm uninstall</code>, it shows up here as it happens.</p>
-    </div>
-    <button class="more" id="more" hidden>Show more</button>
-  </section>
+        <div class="table-wrap">
+          <table class="data">
+            <thead><tr><th>Decision</th><th>What happened</th><th>Command</th><th>Agent</th><th>Environment</th><th class="num">Deletes</th><th class="num">When</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="empty" hidden></div>
+        <button class="more" id="more" hidden>Show more</button>
+      </article>
+    </section>
 
-  <section class="section" id="start">
-    <div class="section-head"><h2>Get started</h2><p>Two tools that work one after the other. Set them up in this order. Each step ticks itself off when it's done.</p></div>
-
-    <div class="flow" aria-label="How a command flows through both tools">
-      <div class="flow-node"><span class="flow-k">1</span><b>You ask</b><small>“Clean up the old servers”</small></div>
-      <div class="flow-arrow" aria-hidden="true"></div>
-      <div class="flow-node accent"><span class="flow-k">2</span><b>paranoid-sre</b><small>Claude checks where it is, previews, plans a way back</small></div>
-      <div class="flow-arrow" aria-hidden="true"></div>
-      <div class="flow-node"><span class="flow-k">3</span><b>Claude runs it</b><small><code>terraform destroy</code></small></div>
-      <div class="flow-arrow" aria-hidden="true"></div>
-      <div class="flow-node accent"><span class="flow-k">4</span><b>blast-radius</b><small>Previews the real damage, applies your rules</small></div>
-      <div class="flow-arrow" aria-hidden="true"></div>
-      <div class="flow-node outcomes"><span class="pill allow">Allowed</span><span class="pill ask">Asks you</span><span class="pill deny">Blocked</span></div>
-    </div>
-
-    <ol class="steps" id="steps"></ol>
-
-    <div class="try">
-      <div>
-        <h3>Try it without a cloud account</h3>
-        <p>The demo project uses only local Terraform resources. Run it from the blast-radius repository, then watch this page.</p>
-      </div>
-      <div class="code" data-copy>
+    <!-- Setup -->
+    <section class="view" id="view-setup" hidden>
+      <article class="card">
+        <header class="card-head"><div><h2>How the two tools work together</h2><p class="muted">paranoid-sre makes Claude careful while it plans. blast-radius enforces your rules just before a command runs.</p></div></header>
+        <div class="flow">
+          <div class="flow-node"><span class="flow-k">1</span><b>You ask</b><small>“Clean up the old servers”</small></div>
+          <div class="flow-arrow" aria-hidden="true"></div>
+          <div class="flow-node accent"><span class="flow-k">2</span><b>paranoid-sre</b><small>Checks where it is, previews, plans a way back</small></div>
+          <div class="flow-arrow" aria-hidden="true"></div>
+          <div class="flow-node"><span class="flow-k">3</span><b>Claude runs it</b><small><code>terraform destroy</code></small></div>
+          <div class="flow-arrow" aria-hidden="true"></div>
+          <div class="flow-node accent"><span class="flow-k">4</span><b>blast-radius</b><small>Previews the real damage, applies your rules</small></div>
+          <div class="flow-arrow" aria-hidden="true"></div>
+          <div class="flow-node outcomes"><span class="pill pass">Allowed</span><span class="pill ask">Asks you</span><span class="pill deny">Blocked</span></div>
+        </div>
+      </article>
+      <div class="setup-grid">
+        <article class="card">
+          <header class="card-head"><div><h2>Setup checklist</h2><p class="muted">In this order. Steps tick themselves off as you finish them.</p></div><div class="progress" id="progress"></div></header>
+          <ol class="steps" id="steps"></ol>
+        </article>
+        <article class="card">
+          <header class="card-head"><div><h2>Try it safely</h2><p class="muted">The demo uses local Terraform resources only. Run it from the blast-radius repository and watch the Overview.</p></div></header>
+          <div class="code" data-copy>
 <pre>cd examples/demo
 terraform init &amp;&amp; terraform apply -auto-approve
-blast-radius check terraform destroy        # asks
-terraform workspace new prod &amp;&amp; terraform apply -auto-approve
-blast-radius check terraform destroy        # blocked</pre>
+blast-radius check terraform destroy   # asks
+terraform workspace new prod
+terraform apply -auto-approve
+blast-radius check terraform destroy   # blocked</pre>
+          </div>
+          <h3 class="sub">Useful commands</h3>
+          <dl class="cmds">
+            <dt><code>blast-radius check '&lt;cmd&gt;'</code></dt><dd>Preview any command yourself</dd>
+            <dt><code>blast-radius config</code></dt><dd>Print the rules in effect here</dd>
+            <dt><code>blast-radius doctor</code></dt><dd>Check the whole setup</dd>
+            <dt><code>blast-radius uninstall</code></dt><dd>Remove the hook</dd>
+          </dl>
+        </article>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="section" id="rules">
-    <div class="section-head"><h2>Your rules</h2><p id="rules-source">The policy in effect where you started the dashboard.</p></div>
-    <div class="error" id="config-error" hidden></div>
-    <div class="rules" id="rule-cards"></div>
-    <div class="protect" id="protect" hidden><h3>Never deleted</h3><div class="chips" id="protect-list"></div></div>
-  </section>
-</main>
+    <!-- Rules -->
+    <section class="view" id="view-rules" hidden>
+      <div class="error" id="config-error" hidden></div>
+      <article class="card">
+        <header class="card-head"><div><h2>Environments</h2><p class="muted" id="rules-source"></p></div></header>
+        <div class="table-wrap">
+          <table class="data static">
+            <thead><tr><th>Environment</th><th>Matches</th><th>Creates and changes</th><th>Deletes and replaces</th></tr></thead>
+            <tbody id="rule-rows"></tbody>
+          </table>
+        </div>
+      </article>
+      <article class="card" id="protect" hidden>
+        <header class="card-head"><div><h2>Never deleted</h2><p class="muted">Protected in every environment</p></div></header>
+        <div class="chips" id="protect-list"></div>
+      </article>
+    </section>
+  </div>
+</div>
 
-<footer class="footer">
-  <p>Everything on this page is read from files on your computer. Nothing leaves it.</p>
-  <p><a href="https://github.com/SandeepKomal/blast-radius" rel="noreferrer">blast-radius</a> · <a href="https://github.com/SandeepKomal/paranoid-sre" rel="noreferrer">paranoid-sre</a></p>
-</footer>
+<aside class="drawer" id="drawer" aria-hidden="true" aria-label="Command details">
+  <header class="drawer-head">
+    <div id="drawer-pill"></div>
+    <button class="ghost icon" id="drawer-close" aria-label="Close">✕</button>
+  </header>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+<div class="scrim" id="scrim" hidden></div>
+<div class="tooltip" id="tooltip" role="status" hidden></div>
 </body>
 </html>
