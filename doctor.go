@@ -231,7 +231,13 @@ func checkHook(c *checkList, path string, h map[string]any) {
 
 // selfTest runs the hook on inputs with known answers, without touching
 // any real infrastructure.
+// selfTesting is set while doctor runs sample inputs through the hook, so
+// they are not recorded in the activity log as if an agent had run them.
+var selfTesting bool
+
 func selfTest(c *checkList) {
+	selfTesting = true
+	defer func() { selfTesting = false }()
 	fake := func(context.Context, string, []string, string, ...string) (analyze.Result, error) {
 		return analyze.Result{}, errors.New("not run during doctor")
 	}
