@@ -36,6 +36,19 @@ stay anonymous.
 Things blast-radius documents as out of scope are not vulnerabilities, but
 are still welcome as feature requests: see [Limitations](README.md#limitations).
 
+## Supply chain
+
+- No third-party Go dependencies; the binary is built from this repository
+  and the Go standard library.
+- Release archives are built by GitHub Actions with GoReleaser, with a
+  `checksums.txt` and signed build provenance. Verify before installing:
+  `gh attestation verify <archive> --repo SandeepKomal/blast-radius`.
+- Every GitHub Action is pinned to a full commit SHA and updated by
+  Dependabot. Workflows default to read-only tokens and don't keep
+  credentials in the checkout.
+- CI runs CodeQL, govulncheck, a gitleaks scan of the whole history, and
+  OpenSSF Scorecard.
+
 ## The activity log
 
 The activity log is a local file with mode 600 that can contain commands,

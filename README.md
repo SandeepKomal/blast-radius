@@ -3,6 +3,8 @@
 [![ci](https://github.com/SandeepKomal/blast-radius/actions/workflows/ci.yml/badge.svg)](https://github.com/SandeepKomal/blast-radius/actions/workflows/ci.yml)
 [![release](https://img.shields.io/github/v/release/SandeepKomal/blast-radius?sort=semver)](https://github.com/SandeepKomal/blast-radius/releases)
 [![license](https://img.shields.io/github/license/SandeepKomal/blast-radius)](LICENSE)
+[![CodeQL](https://github.com/SandeepKomal/blast-radius/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/SandeepKomal/blast-radius/actions/workflows/github-code-scanning/codeql)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/SandeepKomal/blast-radius/badge)](https://scorecard.dev/viewer/?uri=github.com/SandeepKomal/blast-radius)
 
 **See what your AI agent is about to destroy, before it does.** blast-radius is a Claude Code
 hook that previews what a `terraform apply`, `kubectl delete` or `helm uninstall` would delete,
@@ -57,7 +59,8 @@ flowchart LR
 - [Privacy and India's DPDP Act](#privacy-and-indias-dpdp-act)
 - [Commands](#commands)
 - [How it works](#how-it-works) · [Limitations](#limitations) · [Roadmap](#roadmap)
-- [Contributing](#contributing) · [Security](#security) · [Code of conduct](#code-of-conduct) · [License](#license)
+- [Trust and security](#trust-and-security)
+- [Contributing](#contributing) · [Code of conduct](#code-of-conduct) · [License](#license)
 
 ## Screenshots
 
@@ -388,10 +391,47 @@ Bug reports with the exact command are the most useful thing you can send:
 [CONTRIBUTING.md](CONTRIBUTING.md) for development, and [CLAUDE.md](CLAUDE.md) for the rules
 AI agents (and people) follow when changing this repository.
 
-## Security
+## Trust and security
 
-If a destructive command gets through without approval, or a secret reaches the activity log,
-please report it privately as described in [SECURITY.md](SECURITY.md).
+blast-radius sits between an AI agent and your infrastructure, so it has to be trustworthy
+itself. Every item below is checked automatically on every pull request or release.
+
+**The program**
+
+- [x] Fails closed: errors, crashes, timeouts and bad config end in "ask" or a block, never a
+      silent pass (tests prove each path).
+- [x] Previews are read-only and never take state locks.
+- [x] Standard library only: no third-party Go dependencies to compromise.
+- [x] No network access of its own: no telemetry, no update checks. The dashboard listens on
+      `127.0.0.1` only, rejects other `Host` headers (DNS rebinding), sends a strict Content
+      Security Policy, loads nothing from the internet and only reads files.
+- [x] The agent can't switch it off: uninstalling or editing its settings needs your approval,
+      and a repository's config can only make rules stricter.
+- [x] The activity log is created with mode 600, secrets and personal data are masked, and
+      retention and erasure are built in ([privacy](docs/privacy.md)).
+
+**The code and the releases**
+
+- [x] **CodeQL** code scanning on every pull request (Go, GitHub Actions, JavaScript).
+- [x] **govulncheck** checks for known vulnerabilities in Go and the standard library.
+- [x] **gitleaks** scans the full git history for committed secrets in CI.
+- [x] **Dependabot** keeps GitHub Actions and Go modules up to date.
+- [x] **OpenSSF Scorecard** rates the project's supply-chain practices weekly (badge above).
+- [x] Every GitHub Action is pinned to a full commit SHA; workflows run with read-only tokens by
+      default and don't keep credentials in the checkout; downloaded tools are verified against
+      their published SHA-256 checksums.
+- [x] Tests run on Linux, macOS and Windows with the race detector, plus fuzzing of the shell
+      parser and end-to-end tests against real Terraform, OpenTofu, Helm, Pulumi and Kubernetes.
+- [x] Release archives come with checksums and **signed build provenance**:
+
+```bash
+gh attestation verify blast-radius_*_linux_amd64.tar.gz --repo SandeepKomal/blast-radius
+sha256sum -c checksums.txt --ignore-missing
+```
+
+**Reporting a problem:** if a destructive command gets through without approval, or a secret
+reaches the activity log, report it privately as described in [SECURITY.md](SECURITY.md). You
+get an acknowledgement within 3 days.
 
 ## Code of conduct
 
