@@ -24,6 +24,7 @@ type hookInput struct {
 		Command      string `json:"command"`
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
+		Skill        string `json:"skill"`
 	} `json:"tool_input"`
 	Cwd string `json:"cwd"`
 	agentInfo

@@ -79,6 +79,7 @@ func TestRecordedEvents(t *testing.T) {
 		with("hook_event_name", "PostToolUseFailure", "tool_name", "Bash", "tool_use_id", "t2", "error", "Exit code 1"),
 		with("hook_event_name", "PermissionDenied", "tool_name", "Bash", "tool_use_id", "t3", "reason", "[Irreversible Local Destruction]"),
 		with("hook_event_name", "PostToolUse", "tool_name", "Read", "tool_use_id", "t4"),
+		with("hook_event_name", "PostToolUse", "tool_name", "Skill", "tool_use_id", "t5", "tool_input", map[string]string{"skill": "paranoid-sre:paranoid"}),
 	}
 	for _, e := range events {
 		if out := sendHook(t, e); out != "" {
@@ -87,8 +88,8 @@ func TestRecordedEvents(t *testing.T) {
 	}
 
 	got := readLog(t, log)
-	if len(got) != 5 {
-		t.Fatalf("want 5 lines (Read is not recorded), got %d: %v", len(got), got)
+	if len(got) != 6 {
+		t.Fatalf("want 6 lines (Read is not recorded), got %d: %v", len(got), got)
 	}
 	want := []map[string]any{
 		{"kind": "session", "model": "claude-opus-5", "agent_type": "Explore", "session_id": "s1"},
@@ -96,6 +97,7 @@ func TestRecordedEvents(t *testing.T) {
 		{"kind": "result", "outcome": "ran", "tool_use_id": "t1"},
 		{"kind": "result", "outcome": "failed", "tool_use_id": "t2", "error": "Exit code 1"},
 		{"kind": "result", "outcome": "denied", "tool_use_id": "t3"},
+		{"kind": "skill", "skill": "paranoid-sre:paranoid", "agent_type": "Explore"},
 	}
 	for i, w := range want {
 		for k, v := range w {
@@ -162,5 +164,32 @@ func TestHasRecordingHooks(t *testing.T) {
 	}
 	if !hasRecordingHooks(path) {
 		t.Error("a full install has no recording hooks")
+	}
+	// An install from before skills were recorded has an older matcher.
+	b, _ := os.ReadFile(path)
+	if err := os.WriteFile(path, []byte(strings.Replace(string(b), "Bash|PowerShell|Skill", "Bash|PowerShell", 1)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if hasRecordingHooks(path) {
+		t.Error("an install with the old PostToolUse matcher counts as current")
+	}
+}
+
+func TestAuditPromptsOff(t *testing.T) {
+	isolate(t)
+	log := filepath.Join(t.TempDir(), "audit.jsonl")
+	cfg, _ := policy.UserConfigPath()
+	os.MkdirAll(filepath.Dir(cfg), 0o755)
+	b, _ := json.Marshal(map[string]any{"audit_log": log, "audit_prompts": false})
+	os.WriteFile(cfg, b, 0o644)
+	dir := t.TempDir()
+	sendHook(t, map[string]any{"hook_event_name": "UserPromptSubmit", "prompt": "secret plans", "session_id": "s1", "cwd": dir})
+	sendHook(t, map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_use_id": "t1", "session_id": "s1", "cwd": dir})
+	got := readLog(t, log)
+	if len(got) != 1 || got[0]["kind"] != "result" {
+		t.Fatalf("want only the result line, got %v", got)
+	}
+	if raw, _ := os.ReadFile(log); strings.Contains(string(raw), "secret plans") {
+		t.Error("prompt was recorded with audit_prompts false")
 	}
 }
