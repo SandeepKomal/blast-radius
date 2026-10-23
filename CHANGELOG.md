@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- The release workflow is read-only by default; only the release job can
+  write (OpenSSF Scorecard Token-Permissions).
+
 ## [0.2.0] - 2026-10-23
 
 ### Added
