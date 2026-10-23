@@ -122,7 +122,7 @@ func evaluate(req request, run analyze.Runner, stderr io.Writer) ([]analyze.Find
 	} else {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(cfg.PreviewTimeoutSeconds)*time.Second)
 		defer cancel()
-		if cfg.AuditLog != "" {
+		if cfg.AuditLog != "" && !selfTesting {
 			defer markRunning(cfg.AuditLog, req, cfg.PreviewTimeoutSeconds)()
 		}
 		findings = a.Analyze(ctx, req.script, req.dir, req.shell)
@@ -138,7 +138,7 @@ func evaluate(req request, run analyze.Runner, stderr io.Writer) ([]analyze.Find
 		}
 	}
 	action := policy.Strictest(verdicts)
-	if cfg.AuditLog != "" && (len(findings) > 0 || cfg.AuditAll && req.agent.ToolUseID != "" && req.script != "") {
+	if cfg.AuditLog != "" && !selfTesting && (len(findings) > 0 || cfg.AuditAll && req.agent.ToolUseID != "" && req.script != "") {
 		if err := writeAudit(cfg.AuditLog, cfg.Redact(), req, findings, verdicts, action); err != nil {
 			fmt.Fprintf(stderr, "blast-radius: audit log: %v\n", err)
 		}

@@ -193,3 +193,21 @@ func TestAuditPromptsOff(t *testing.T) {
 		t.Error("prompt was recorded with audit_prompts false")
 	}
 }
+
+// doctor's self-test must not leave sample commands in the activity log.
+func TestDoctorDoesNotWriteAuditLog(t *testing.T) {
+	log := withAuditLog(t, true)
+	t.Chdir(t.TempDir())
+	var out bytes.Buffer
+	doctor(&out, planRunner(""))
+	if !strings.Contains(out.String(), "self-test: hook decisions are correct") {
+		t.Fatalf("self-test did not pass:\n%s", out.String())
+	}
+	if _, err := os.Stat(log); err == nil {
+		b, _ := os.ReadFile(log)
+		t.Errorf("doctor wrote to the activity log:\n%s", b)
+	}
+	if _, err := os.Stat(runningDir(log)); err == nil {
+		t.Error("doctor left running marks")
+	}
+}

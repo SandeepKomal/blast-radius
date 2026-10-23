@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- `blast-radius doctor` no longer writes its self-test commands to the
+  activity log, where the dashboard showed them as if an agent had run
+  them.
+
 ### Security
 
 - The release workflow is read-only by default; only the release job can
