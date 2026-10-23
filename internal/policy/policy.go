@@ -79,6 +79,15 @@ type Config struct {
 	AuditLog string `json:"audit_log,omitempty"`
 	// AuditAll also records shell commands with nothing risky in them.
 	AuditAll bool `json:"audit_all,omitempty"`
+	// AuditPrompts set to false stops the audit log recording the requests
+	// users give the agent. Unset means record them.
+	AuditPrompts *bool `json:"audit_prompts,omitempty"`
+	// AuditRedact set to false stops masking personal data and secrets in
+	// the audit log. Unset means mask them.
+	AuditRedact *bool `json:"audit_redact,omitempty"`
+	// AuditRetentionDays, when above 0, deletes audit log entries older than
+	// this many days.
+	AuditRetentionDays int `json:"audit_retention_days,omitempty"`
 
 	// Sources are the files the config came from; empty for the built-in one.
 	Sources []string `json:"-"`
@@ -209,6 +218,12 @@ func Parse(b []byte, base Config) (Config, error) {
 	}
 	cfg.AuditLog = raw.AuditLog
 	cfg.AuditAll = raw.AuditAll
+	cfg.AuditPrompts = raw.AuditPrompts
+	cfg.AuditRedact = raw.AuditRedact
+	if raw.AuditRetentionDays < 0 {
+		return base, fmt.Errorf("audit_retention_days must not be negative")
+	}
+	cfg.AuditRetentionDays = raw.AuditRetentionDays
 	if raw.PreviewTimeoutSeconds != 0 {
 		if raw.PreviewTimeoutSeconds < 1 || raw.PreviewTimeoutSeconds > MaxPreviewTimeout {
 			return base, fmt.Errorf("preview_timeout_seconds must be between 1 and %d", MaxPreviewTimeout)
@@ -330,3 +345,9 @@ func Strictest(verdicts []Verdict) Action {
 	}
 	return out
 }
+
+// Redact reports whether the audit log masks personal data and secrets.
+func (c Config) Redact() bool { return c.AuditRedact == nil || *c.AuditRedact }
+
+// RecordPrompts reports whether the audit log records users' requests.
+func (c Config) RecordPrompts() bool { return c.AuditPrompts == nil || *c.AuditPrompts }

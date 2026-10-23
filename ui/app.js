@@ -61,7 +61,7 @@ function save(k, v) {
 }
 
 // What the recording hooks saw: results by tool use, sessions, prompts.
-const idx = { results: new Map(), sessions: new Map(), prompts: new Map() };
+const idx = { results: new Map(), sessions: new Map(), prompts: new Map(), skills: new Map() };
 
 // ingest files one audit log line and says what kind it was.
 function ingest(line) {
@@ -72,6 +72,12 @@ function ingest(line) {
     case "session":
       if (line.session_id) idx.sessions.set(line.session_id, line);
       return "session";
+    case "skill": {
+      if (!line.session_id) return "skill";
+      if (!idx.skills.has(line.session_id)) idx.skills.set(line.session_id, []);
+      idx.skills.get(line.session_id).push(line);
+      return "skill";
+    }
     case "prompt": {
       if (!line.session_id) return "prompt";
       if (!idx.prompts.has(line.session_id)) idx.prompts.set(line.session_id, []);
@@ -141,6 +147,51 @@ function nextChip(e) {
   const n = nextOf(e);
   if (!n) return h("span", { class: "muted" }, "–");
   return h("span", { class: "then t-" + n.id, title: n.hint || (n.r && n.r.error) || "" }, h("i", { "aria-hidden": "true" }, NEXT_ICON[n.id]), n.label);
+}
+
+// paranoid-sre: the skill that makes the agent check where it is, preview
+// and plan a way back before changing anything. Its careful steps show up
+// as read-only commands, recognised here.
+const PARANOID = /(^|:)paranoid$|^paranoid-sre$/;
+const CARE = {
+  where: { label: "Checked where it is", short: "Where", re: /\b(terraform|tofu) workspace show\b|kubectl config (current-context|get-contexts|view)|\bkubectx\b|aws sts get-caller-identity|aws configure list|gcloud config (list|get)|az account show|pulumi (stack --show-name|whoami)|\bkubectl cluster-info\b/ },
+  preview: { label: "Previewed the change", short: "Preview", re: /\b(terraform|tofu|terragrunt) plan\b|\bkubectl diff\b|--dry-run|helm (get manifest|diff|template)\b|pulumi preview|blast-radius check|\bterraform show\b|select count\(/i },
+  wayback: { label: "Made a way back", short: "Way back", re: /snapshot|backup|pg_dump|mysqldump|mongodump|state pull|velero|-o yaml\s*>|export-/i },
+};
+function careOf(e) {
+  for (const [k, c] of Object.entries(CARE)) if (c.re.test(e.command || "")) return k;
+  return null;
+}
+const shield = () => s("svg", { viewBox: "0 0 16 16", width: 12, height: 12, class: "shield", "aria-hidden": "true" }, s("path", { d: "M8 1l5.5 2v4.2c0 3.4-2.3 5.9-5.5 7.3-3.2-1.4-5.5-3.9-5.5-7.3V3z" }));
+
+// Tasks: the commands an agent ran for one request, in order.
+function tasks(list) {
+  const map = new Map();
+  for (const e of list) {
+    if (!e.session_id) continue;
+    const p = taskOf(e);
+    const k = e.session_id + "\u0000" + (p ? p.time : "none") + "\u0000" + (e.agent_type || "");
+    if (!map.has(k)) map.set(k, { key: k, session: e.session_id, prompt: p, cmds: [], agentType: e.agent_type || "" });
+    map.get(k).cmds.push(e);
+  }
+  const out = [...map.values()];
+  for (const t of out) {
+    t.cmds.sort((a, b) => (a.time < b.time ? -1 : 1));
+    t.start = t.prompt ? t.prompt.time : t.cmds[0].time;
+    t.last = t.cmds[t.cmds.length - 1].time;
+    const later = (idx.prompts.get(t.session) || []).filter((p) => p.time > t.start).map((p) => p.time).sort()[0] || "\uffff";
+    const skills = (idx.skills.get(t.session) || []).filter((x) => x.time >= t.start && x.time < later && PARANOID.test(x.skill));
+    t.paranoidAt = skills.length ? skills[0].time : t.prompt && /^\/paranoid/.test(t.prompt.prompt) ? t.start : null;
+    t.care = { where: [], preview: [], wayback: [] };
+    for (const e of t.cmds) { const c = careOf(e); if (c) t.care[c].push(e); }
+    t.risky = t.cmds.filter((e) => risky(e) && !careOf(e));
+    t.n = { deny: 0, ask: 0, pass: 0 };
+    for (const e of t.risky) if (e.action in t.n) t.n[e.action]++;
+  }
+  return out.sort((a, b) => (a.last < b.last ? 1 : -1));
+}
+function taskFor(e) {
+  return tasks(state.entries.filter((x) => x.session_id === e.session_id)).find((t) => t.cmds.includes(e));
 }
 
 // Helpers
@@ -392,6 +443,82 @@ function askSummary(list) {
     n.waiting ? [", ", h("b", {}, fmt.format(n.waiting)), " waiting for you"] : null, ".");
 }
 
+// Careful mode: how often paranoid-sre was engaged before risky commands,
+// and which of its steps the agent took.
+function renderCare(list) {
+  const ts = tasks(list).filter((t) => t.risky.length);
+  if (!ts.length) {
+    $("care").replaceChildren(h("div", { class: "empty-mini" }, "No tasks with risky commands in the " + RANGES[state.range].label + "."));
+    return;
+  }
+  const on = ts.filter((t) => t.paranoidAt);
+  const pct = (n, d) => (d ? Math.round((n / d) * 100) : 0);
+  const bar = (label, n, d) => {
+    const fillEl = h("span");
+    fillEl.style.width = pct(n, d) + "%";
+    return h("div", { class: "care-row" },
+      h("div", { class: "hbar-top" }, h("span", {}, label), h("b", {}, fmt.format(n) + " of " + fmt.format(d))),
+      h("div", { class: "care-track" }, fillEl));
+  };
+  $("care").replaceChildren(
+    h("div", { class: "care-head" },
+      h("div", { class: "mix-total" }, fmt.format(on.length), h("small", {}, "of " + fmt.format(ts.length) + " tasks with risky commands used paranoid-sre")),
+      h("div", { class: "care-ring", role: "img", "aria-label": pct(on.length, ts.length) + "%" }, ring(pct(on.length, ts.length)))),
+    h("div", { class: "care-steps" },
+      bar(CARE.where.label, on.filter((t) => t.care.where.length).length, on.length),
+      bar(CARE.preview.label, on.filter((t) => t.care.preview.length).length, on.length),
+      bar(CARE.wayback.label, on.filter((t) => t.care.wayback.length).length, on.length)),
+    ts.length > on.length && h("div", { class: "mix-extra" }, h("b", {}, fmt.format(ts.length - on.length)),
+      " ", ts.length - on.length === 1 ? "task" : "tasks", " ran risky commands without paranoid-sre. ", h("a", { class: "link", href: "#tasks" }, "See tasks →")));
+}
+function ring(p) {
+  const r = 22, c = 2 * Math.PI * r;
+  return s("svg", { viewBox: "0 0 56 56", width: 56, height: 56 },
+    s("circle", { cx: 28, cy: 28, r, class: "ring-track" }),
+    s("circle", { cx: 28, cy: 28, r, class: "ring-fill", "stroke-dasharray": `${(p / 100) * c} ${c}`, transform: "rotate(-90 28 28)" }),
+    s("text", { x: 28, y: 32, "text-anchor": "middle", class: "ring-text" }, p + "%"));
+}
+
+// Tasks view.
+function renderTasks() {
+  const ts = tasks(state.entries.filter(inRange));
+  $("task-count").textContent = fmt.format(ts.length) + " in the " + RANGES[state.range].label;
+  if (!ts.length) {
+    $("task-list").replaceChildren(h("div", { class: "card empty" }, h("h3", {}, "No tasks yet"),
+      h("p", {}, "Tasks appear when Claude Code runs commands with the recording hooks installed (run blast-radius install again if you installed an older version).")));
+    return;
+  }
+  $("task-list").replaceChildren(...ts.slice(0, 40).map((t) => {
+    const a = agentOf(t.cmds[0]);
+    const step = (ok, label) => h("li", { class: ok ? "ok" : "" }, h("i", { "aria-hidden": "true" }, ok ? "✓" : ""), label);
+    const story = [];
+    if (t.paranoidAt) story.push({ kind: "paranoid", time: t.paranoidAt });
+    for (const e of t.cmds) story.push({ kind: "cmd", time: e.time, e });
+    story.sort((x, y) => (x.time < y.time ? -1 : 1));
+    return h("article", { class: "card task-card" + (t.paranoidAt ? " careful" : "") },
+      h("header", { class: "task-head" },
+        h("div", { class: "task-title" },
+          h("h3", {}, t.prompt ? "“" + t.prompt.prompt + "”" : "No request recorded"),
+          h("p", { class: "muted" }, [agentLabel(t.cmds[0]), a.model].filter(Boolean).join(" · "), " · ", h("span", { "data-ago": t.last }, ago(t.last)))),
+        t.paranoidAt ? h("span", { class: "care-badge on" }, shield(), "paranoid-sre") : h("span", { class: "care-badge" }, "No careful mode")),
+      h("ul", { class: "care-checks" },
+        step(!!t.paranoidAt, "paranoid-sre engaged"),
+        step(t.care.where.length > 0, CARE.where.label),
+        step(t.care.preview.length > 0, CARE.preview.label),
+        step(t.care.wayback.length > 0, CARE.wayback.label)),
+      h("ol", { class: "story" }, story.map((x) => {
+        if (x.kind === "paranoid") return h("li", { class: "st-paranoid" }, h("span", { class: "st-kind" }, shield(), "paranoid-sre"), h("span", {}, "Loaded the careful-SRE checklist"), h("span", { class: "when" }, new Date(x.time).toLocaleTimeString()));
+        const e = x.e, c = careOf(e);
+        return h("li", { class: "click", onclick: () => openDrawer(e) },
+          h("span", { class: "st-kind" + (c ? " care" : "") }, c ? CARE[c].short : risky(e) ? "Change" : "Read"),
+          h("span", { class: "mono", title: e.command }, e.command),
+          h("span", { class: "st-end" }, risky(e) && !c ? pill(e.action) : null, nextChip(e)));
+      })),
+      t.risky.length > 0 && h("footer", { class: "agent-counts" },
+        OUTCOMES.filter((o) => t.n[o.id]).map((o) => h("span", { class: "count-pill" }, icon(o.id), fmt.format(t.n[o.id]), " ", o.label.toLowerCase()))));
+  }));
+}
+
 // Agents: one row per Claude Code session and subagent.
 function renderAgents(list) {
   const groups = new Map();
@@ -416,6 +543,7 @@ function renderAgents(list) {
         h("span", { class: "avatar", "aria-hidden": "true" }, g.a.sub && g.a.sub !== "main agent" ? g.a.sub[0].toUpperCase() : "C"),
         h("div", { class: "agent-name" },
           h("b", {}, g.a.name), g.a.sub && h("span", { class: "tag" }, g.a.sub),
+          (idx.skills.get(g.a.session) || []).some((x) => PARANOID.test(x.skill)) && h("span", { class: "care-badge on small", title: "Used paranoid-sre" }, shield(), "paranoid-sre"),
           h("div", { class: "agent-meta" }, [g.a.model, g.a.session && "session " + g.a.session.slice(0, 8)].filter(Boolean).join(" · ") || "\u00a0")),
         h("span", { class: "when", "data-ago": g.last.time }, ago(g.last.time))),
       task && h("p", { class: "agent-task", title: task.prompt }, "“" + task.prompt + "”"),
@@ -522,7 +650,7 @@ function renderTable() {
       h("td", {}, risky(e) ? pill(e.action) : h("span", { class: "pill safe" }, "Safe")),
       h("td", {}, nextChip(e)),
       h("td", { class: "cmd", title: e.command }, e.command),
-      h("td", { class: "agent", title: [agentLabel(e), agentOf(e).model].filter(Boolean).join(" · ") }, agentLabel(e)),
+      h("td", { class: "agent", title: [agentLabel(e), agentOf(e).model].filter(Boolean).join(" · ") }, careOf(e) ? h("span", { class: "care-tag" }, CARE[careOf(e)].short) : null, agentLabel(e)),
       h("td", { class: "env", title: envOf(e) }, envOf(e) || "–"),
       h("td", { class: "num" }, lost(e) || "–"),
       h("td", { class: "num when", "data-ago": e.time, title: new Date(e.time).toLocaleString() }, ago(e.time)));
@@ -585,6 +713,14 @@ function openDrawer(e, refocus = true) {
 function timeline(e) {
   const steps = [];
   const at = (t) => new Date(t).toLocaleTimeString();
+  const t = e.session_id ? taskFor(e) : null;
+  if (t && t.paranoidAt && t.paranoidAt <= e.time) {
+    steps.push({ id: "care", title: "paranoid-sre engaged", detail: "The agent loaded the careful-SRE checklist for this task.", time: at(t.paranoidAt) });
+    for (const k of Object.keys(CARE)) {
+      const done = t.care[k].filter((x) => x.time < e.time);
+      if (done.length) steps.push({ id: "care", title: CARE[k].label, detail: done.map((x) => x.command).join("\n"), time: at(done[0].time) });
+    }
+  }
   steps.push({ id: "info", title: agentLabel(e) + " wanted to run it", time: at(e.time) });
   if (!risky(e)) steps.push({ id: "pass", title: "blast-radius found nothing risky", detail: "Claude Code's own permission rules applied." });
   else if (e.action === "deny") steps.push({ id: "deny", title: "blast-radius blocked it", detail: (e.findings.find((f) => f.reason) || {}).reason });
@@ -658,7 +794,8 @@ function renderSetup(st) {
   }));
 
   const byId = Object.fromEntries(steps.map((x) => [x.id, x]));
-  const health = [["Hook", byId.hook], ["Activity log", byId.log], ["paranoid-sre", byId.paranoid]];
+  const health = [["Hook", byId.hook], ["Activity log", byId.log], ["paranoid-sre", byId.paranoid],
+    ["Masking", { done: st.privacy.redact, detail: "Personal data and secrets are masked before they are written" }]];
   $("health").replaceChildren(...health.map(([name, x]) =>
     h("li", { title: x.detail || "" }, h("i", { class: "dot " + (x.done ? "on" : "off") }), name, h("span", {}, x.done ? "On" : "Off"))));
 }
@@ -678,17 +815,44 @@ function renderRules(st) {
     : "The built-in policy. Run blast-radius init --user to write your own.";
   $("protect").hidden = !(p.protect && p.protect.length);
   $("protect-list").replaceChildren(...(p.protect || []).map((x) => h("span", { class: "chip" }, x)));
+  renderPrivacy(st);
   $("config-error").hidden = !st.config_error;
   $("config-error").textContent = st.config_error ? "Config error: " + st.config_error + ". Until it's fixed, nothing passes without asking." : "";
+}
+
+function renderPrivacy(st) {
+  const p = st.privacy;
+  const size = p.bytes < 1024 ? p.bytes + " B" : p.bytes < 1048576 ? (p.bytes / 1024).toFixed(1) + " KB" : (p.bytes / 1048576).toFixed(1) + " MB";
+  const row = (ok, title, text, fix) => h("li", { class: ok ? "on" : "off" },
+    h("i", { "aria-hidden": "true" }, ok ? "✓" : "!"),
+    h("div", {}, h("b", {}, title), h("p", {}, text), !ok && fix && h("p", { class: "fix" }, "To change: ", h("code", {}, fix))));
+  $("privacy-list").replaceChildren(
+    row(true, "Stays on this machine", "The log is a file only you can read (mode 600). This dashboard listens on 127.0.0.1 and sends nothing anywhere."),
+    row(p.redact, p.redact ? "Personal data and secrets are masked" : "Masking is off",
+      p.redact ? "Emails, Indian phone numbers, PAN, Aadhaar, card numbers and IP addresses in requests and errors, and passwords, tokens and keys everywhere, are replaced before anything is written."
+        : "Requests, errors and commands are written as typed.", '"audit_redact": true'),
+    row(p.retention_days > 0, p.retention_days > 0 ? "Kept for " + p.retention_days + " days" : "Kept until you delete it",
+      p.retention_days > 0 ? "Older entries are deleted automatically while this dashboard runs, or with blast-radius audit prune." : "Entries are never deleted automatically.", '"audit_retention_days": 90'),
+    row(true, p.prompts ? "Requests to the agent are recorded" : "Requests to the agent are not recorded",
+      p.prompts ? "So each command shows its task. Set audit_prompts to false to stop." : "Commands, decisions and results are still recorded; tasks show as not recorded."),
+    row(true, p.all ? "Every shell command is recorded" : "Only risky commands are recorded",
+      p.all ? "Including reads such as kubectl get, so paranoid-sre's careful steps show up." : "Set audit_all to true to see paranoid-sre's careful steps."),
+    row(true, "Log file", st.log + " · " + size + (p.oldest ? " · oldest entry " + new Date(p.oldest).toLocaleDateString() : "")));
+  $("privacy-cmds").replaceChildren(
+    h("p", { class: "muted" }, "Someone asks what is stored about them:"), codeBlock("blast-radius audit export --match 'Ravi'"),
+    h("p", { class: "muted" }, "Someone asks to be erased:"), codeBlock("blast-radius audit forget --match 'Ravi'"),
+    h("p", { class: "muted" }, "Erase one Claude session:"), codeBlock("blast-radius audit forget --session <id>"),
+    h("p", { class: "muted" }, "Delete old entries now:"), codeBlock("blast-radius audit prune --older-than 90d"));
 }
 
 // Views.
 
 const VIEWS = {
   overview: ["Overview", "What your agent tried to run, and what blast-radius did about it."],
+  tasks: ["Tasks", "Each request you gave the agent, the careful steps paranoid-sre made it take, and what blast-radius decided."],
   activity: ["Activity", "Every command blast-radius checked, newest first. Select one for details."],
   setup: ["Setup", "Install blast-radius and paranoid-sre, in order."],
-  rules: ["Rules", "What happens in each environment."],
+  rules: ["Rules & privacy", "What happens in each environment, and what the activity log keeps."],
 };
 
 function route() {
@@ -701,6 +865,7 @@ function route() {
   $("title").textContent = VIEWS[v][0];
   $("subtitle").textContent = VIEWS[v][1];
   document.querySelector(".top-actions .segmented").hidden = v === "setup" || v === "rules";
+  if (v === "tasks") renderTasks();
   if (v === "overview") renderTimeChart();
 }
 
@@ -713,6 +878,8 @@ function renderAll() {
   renderBreakdown($("by-env"), list.filter(risky), (e) => [envOf(e) || "unknown"], "No environments yet.");
   renderBreakdown($("by-tool"), list.filter(risky), toolsOf, "No tools yet.");
   renderAgents(list);
+  renderCare(list);
+  renderTasks();
   renderLatestBlocked(list);
   renderRunning();
   renderTable();
