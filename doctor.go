@@ -276,7 +276,8 @@ const userTemplate = `{
     { "name": "sandbox", "match": ["kind-*", "minikube", "docker-desktop"], "destroy": "pass" }
   ],
   "protect": [],
-  "preview_timeout_seconds": 90
+  "preview_timeout_seconds": 90,
+  "audit_log": "~/.local/state/blast-radius/audit.jsonl"
 }
 `
 

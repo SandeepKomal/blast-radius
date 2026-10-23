@@ -44,6 +44,7 @@ Then add the hook and check the setup:
 ```bash
 blast-radius install    # adds the hook to ~/.claude/settings.json
 blast-radius doctor     # checks the hook, config and tools, and runs a self-test
+blast-radius ui         # optional: a live dashboard at http://127.0.0.1:7357
 ```
 
 Restart Claude Code to load the hook. Use `blast-radius install --project` to add it to a
@@ -115,6 +116,23 @@ Put it in your user config (`blast-radius init --user`) or in a repository's
 `.blast-radius.json` (`blast-radius init`). A repository's file can only make decisions
 stricter, so an agent can't relax the rules by writing one. See
 [docs/configuration.md](docs/configuration.md) for every option.
+
+## Dashboard
+
+```bash
+blast-radius ui      # http://127.0.0.1:7357
+```
+
+A page on your own machine that shows, live, what the agent tried to run and what blast-radius
+did with it: allowed, asked you or blocked, with the resources each command would have deleted
+and the previews still running. It also walks you through setting up blast-radius and
+paranoid-sre in order, ticking off each step as it finds it done, and shows the rules in effect.
+
+![The blast-radius dashboard](docs/dashboard.png)
+
+It reads the [audit log](docs/configuration.md#audit_log), so turn that on first
+(`blast-radius init --user` writes a config with it). The dashboard only listens on
+`127.0.0.1`, only reads files, and loads nothing from the internet.
 
 ## Without Claude Code
 
