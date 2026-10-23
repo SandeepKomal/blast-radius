@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- The release build no longer uses the GitHub Actions cache, so a poisoned
+  cache can't reach a release binary (zizmor cache-poisoning).
+- `blast-radius init --user` creates the user config readable only by its
+  owner (600, folder 700): it can name production accounts and clusters.
+
 ## [0.2.1] - 2026-10-23
 
 ### Fixed
