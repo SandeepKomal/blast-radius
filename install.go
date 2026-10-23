@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -43,7 +44,7 @@ func install(add bool, args []string, stdout, stderr io.Writer) int {
 	var entry map[string]any
 	if add {
 		cmd := hookCommand(*project)
-		entry = hookEntry(cmd)
+		entry = hookEntries(cmd)
 		if other := otherBinary(cmd); other != "" {
 			fmt.Fprintf(stderr, "Note: the hook will run %s, the blast-radius found on your PATH, not this copy (%s).\n"+
 				"Replace that file with this one to use this version.\n", other, selfPath())
@@ -99,17 +100,35 @@ func hookCommand(project bool) string {
 	return "blast-radius"
 }
 
-func hookEntry(command string) map[string]any {
-	return map[string]any{
-		"matcher": hookMatcher,
-		"hooks": []any{map[string]any{
-			"type":      "command",
-			"command":   command,
-			"args":      []any{"hook", "claude"},
-			"timeout":   hookTimeoutSeconds,
-			"onFailure": "block",
-		}},
+// hookEntries returns the settings entry for each hook event, keyed by
+// event. PreToolUse checks commands and fails closed; the other events are
+// only recorded for the dashboard, so a failure there must not block.
+func hookEntries(command string) map[string]any {
+	entries := map[string]any{
+		"PreToolUse": map[string]any{
+			"matcher": hookMatcher,
+			"hooks": []any{map[string]any{
+				"type":      "command",
+				"command":   command,
+				"args":      []any{"hook", "claude"},
+				"timeout":   hookTimeoutSeconds,
+				"onFailure": "block",
+			}},
+		},
 	}
+	for event, matcher := range recordedEvents {
+		e := map[string]any{"hooks": []any{map[string]any{
+			"type":    "command",
+			"command": command,
+			"args":    []any{"hook", "claude"},
+			"timeout": 10,
+		}}}
+		if matcher != "" {
+			e["matcher"] = matcher
+		}
+		entries[event] = e
+	}
+	return entries
 }
 
 func isOurHook(h any) bool {
@@ -125,15 +144,16 @@ func isOurHook(h any) bool {
 	return strings.Contains(cmd, "blast-radius") && strings.Contains(cmd, "hook claude")
 }
 
-// updateSettings replaces any blast-radius hook in a Claude Code settings
-// file with entry, or removes it when entry is nil, keeping everything else.
-// It returns "added", "updated", "removed" or "unchanged".
-func updateSettings(path string, entry map[string]any) (string, error) {
+// updateSettings replaces any blast-radius hooks in a Claude Code settings
+// file with entries (one per hook event), or removes them when entries is
+// nil, keeping everything else. It returns "added", "updated", "removed" or
+// "unchanged".
+func updateSettings(path string, entries map[string]any) (string, error) {
 	settings := map[string]any{}
 	before, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		if entry == nil {
+		if entries == nil {
 			return "unchanged", nil
 		}
 	case err != nil:
@@ -148,43 +168,44 @@ func updateSettings(path string, entry map[string]any) (string, error) {
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-	entries, _ := hooks["PreToolUse"].([]any)
 
 	found := false
-	var kept []any
-	for _, e := range entries {
-		m, ok := e.(map[string]any)
-		inner, _ := m["hooks"].([]any)
-		if !ok {
-			kept = append(kept, e)
-			continue
-		}
-		var rest []any
-		for _, h := range inner {
-			if isOurHook(h) {
-				found = true
-			} else {
-				rest = append(rest, h)
+	for _, event := range append([]string{"PreToolUse"}, sortedKeys(recordedEvents)...) {
+		existing, _ := hooks[event].([]any)
+		var kept []any
+		for _, e := range existing {
+			m, ok := e.(map[string]any)
+			inner, _ := m["hooks"].([]any)
+			if !ok {
+				kept = append(kept, e)
+				continue
+			}
+			var rest []any
+			for _, h := range inner {
+				if isOurHook(h) {
+					found = true
+				} else {
+					rest = append(rest, h)
+				}
+			}
+			if len(rest) == len(inner) {
+				kept = append(kept, e)
+			} else if len(rest) > 0 {
+				m["hooks"] = rest
+				kept = append(kept, m)
 			}
 		}
-		if len(rest) == len(inner) {
+		if e, ok := entries[event]; ok {
 			kept = append(kept, e)
-		} else if len(rest) > 0 {
-			m["hooks"] = rest
-			kept = append(kept, m)
+		}
+		if len(kept) > 0 {
+			hooks[event] = kept
+		} else {
+			delete(hooks, event)
 		}
 	}
-	if entry == nil && !found {
+	if entries == nil && !found {
 		return "unchanged", nil
-	}
-	if entry != nil {
-		kept = append(kept, entry)
-	}
-
-	if len(kept) > 0 {
-		hooks["PreToolUse"] = kept
-	} else {
-		delete(hooks, "PreToolUse")
 	}
 	if len(hooks) > 0 {
 		settings["hooks"] = hooks
@@ -207,7 +228,7 @@ func updateSettings(path string, entry map[string]any) (string, error) {
 		return "", err
 	}
 	switch {
-	case entry == nil:
+	case entries == nil:
 		return "removed", nil
 	case found:
 		return "updated", nil
@@ -288,4 +309,13 @@ func sameFile(a, b string) bool {
 	fa, errA := os.Stat(a)
 	fb, errB := os.Stat(b)
 	return errA == nil && errB == nil && os.SameFile(fa, fb)
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }

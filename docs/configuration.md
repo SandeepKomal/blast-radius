@@ -124,5 +124,25 @@ preview runs, a small file in a `running` directory next to the log lets the
 dashboard show it as in progress.
 
 ```json
-{"time":"2026-10-18T09:12:44Z","tool":"Bash","dir":"/src/infra","command":"terraform destroy","action":"deny","findings":[{"tool":"terraform","target":"workspace prod","level":"destroy","action":"deny","environment":"production","destroyed":["aws_db_instance.main"]}]}
+{"time":"2026-10-18T09:12:44Z","tool":"Bash","dir":"/src/infra","command":"terraform destroy","action":"deny","findings":[{"tool":"terraform","target":"workspace prod","level":"destroy","action":"deny","environment":"production","destroyed":["aws_db_instance.main"]}],"session_id":"a1f3…","tool_use_id":"toolu_01…","agent_type":"Explore","permission_mode":"default"}
 ```
+
+Checks that come from Claude Code carry the session, tool use, prompt and
+subagent they came from. The [recording hooks](how-it-works.md#the-hook) add
+lines with a `kind`:
+
+```json
+{"kind":"session","time":"…","session_id":"a1f3…","model":"claude-opus-5-5","source":"startup","dir":"/src"}
+{"kind":"prompt","time":"…","session_id":"a1f3…","prompt_id":"…","prompt":"Tear down the old staging servers"}
+{"kind":"result","time":"…","session_id":"a1f3…","tool_use_id":"toolu_01…","outcome":"ran","duration_ms":4200}
+```
+
+`outcome` is `ran`, `failed`, `interrupted` or `denied` (by auto mode).
+Prompts and error messages are cut at 500 characters.
+
+### `audit_all`
+
+Also record shell commands that have nothing risky in them, so the
+dashboard shows everything the agent ran, not only risky commands. Off by
+default; `blast-radius init --user` turns it on. Only read from your user
+config.

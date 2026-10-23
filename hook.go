@@ -18,13 +18,24 @@ const denyAdvice = "\nBlocked by blast-radius policy. Do not retry this command 
 	"and let them run it themselves if they want it."
 
 type hookInput struct {
-	ToolName  string `json:"tool_name"`
-	ToolInput struct {
+	HookEventName string `json:"hook_event_name"`
+	ToolName      string `json:"tool_name"`
+	ToolInput     struct {
 		Command      string `json:"command"`
 		FilePath     string `json:"file_path"`
 		NotebookPath string `json:"notebook_path"`
 	} `json:"tool_input"`
 	Cwd string `json:"cwd"`
+	agentInfo
+
+	// Fields of the events that are only recorded, see record.go.
+	Error       string `json:"error"`
+	IsInterrupt bool   `json:"is_interrupt"`
+	DurationMS  int64  `json:"duration_ms"`
+	Reason      string `json:"reason"`
+	Model       any    `json:"model"`
+	Source      string `json:"source"`
+	Prompt      string `json:"prompt"`
 }
 
 type hookOutput struct {
@@ -53,19 +64,30 @@ func writeDecision(w io.Writer, action policy.Action, reason string) int {
 // (Bash, PowerShell) and file edits (Edit, Write). Commands that pass produce
 // no output, so Claude Code's own permission rules apply as usual. Anything
 // that goes wrong ends in "ask", never in a silent pass.
+//
+// The same command is installed for a few other events, which it only
+// records for the dashboard (see record.go).
 func hookClaude(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (code int) {
+	var in hookInput
 	defer func() {
 		if r := recover(); r != nil {
+			if recorded(in.HookEventName) {
+				code = 0
+				return
+			}
 			code = writeDecision(stdout, policy.Ask, fmt.Sprintf(
 				"blast-radius hit an internal error (%v) and could not check this command. Review it yourself before approving.", r))
 		}
 	}()
 
-	var in hookInput
 	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
 		return writeDecision(stdout, policy.Ask, "blast-radius could not read the hook input ("+err.Error()+"). Review this action yourself before approving.")
 	}
-	req := request{tool: in.ToolName, dir: in.Cwd}
+	if recorded(in.HookEventName) {
+		recordEvent(in, stderr)
+		return 0
+	}
+	req := request{tool: in.ToolName, dir: in.Cwd, agent: in.agentInfo}
 	if req.dir == "" {
 		req.dir, _ = os.Getwd()
 	}

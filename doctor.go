@@ -52,6 +52,9 @@ func doctor(stdout io.Writer, run analyze.Runner) int {
 		default:
 			installed = true
 			checkHook(c, p, h)
+			if !hasRecordingHooks(p) {
+				c.info("%s has no recording hooks; run `blast-radius install` again so `blast-radius ui` can show which agent ran a command and whether it ran", p)
+			}
 		}
 	}
 	if !installed {
@@ -277,7 +280,8 @@ const userTemplate = `{
   ],
   "protect": [],
   "preview_timeout_seconds": 90,
-  "audit_log": "~/.local/state/blast-radius/audit.jsonl"
+  "audit_log": "~/.local/state/blast-radius/audit.jsonl",
+  "audit_all": true
 }
 `
 
@@ -311,4 +315,33 @@ func initConfig(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Wrote %s\n", path)
 	return 0
+}
+
+// hasRecordingHooks reports whether a settings file has the hooks that
+// record what happened after a check (added by newer installs).
+func hasRecordingHooks(path string) bool {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var settings struct {
+		Hooks map[string][]struct {
+			Hooks []any `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if json.Unmarshal(b, &settings) != nil {
+		return false
+	}
+	for event := range recordedEvents {
+		ok := false
+		for _, e := range settings.Hooks[event] {
+			for _, h := range e.Hooks {
+				ok = ok || isOurHook(h)
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
