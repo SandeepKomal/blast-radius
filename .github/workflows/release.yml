@@ -45,6 +45,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: stable
+          # A poisoned cache must not reach a release build.
+          cache: false
       - run: go test -count=1 ./...
       - name: Release notes from CHANGELOG.md
         run: |
