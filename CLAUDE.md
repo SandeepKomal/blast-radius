@@ -74,6 +74,14 @@ on macOS and Windows: use `filepath`, `policy.UserConfigPath()` and the
   refresh the README screenshots, run the dashboard against sample data and
   capture each view at 1440x900, device scale 2, into `docs/screenshots/`.
 
+## Releases
+
+1. Move the `Unreleased` entries in `CHANGELOG.md` under `## [X.Y.Z] - date`.
+2. Merge to `main`, then push a tag `vX.Y.Z`, or run the **release**
+   workflow from the Actions tab with the version (`X.Y.Z`). It tests, tags
+   `main` once every check has passed, builds with GoReleaser, and attests
+   build provenance.
+
 ## Commits and docs
 
 - One focused change per commit, with a message that says why.

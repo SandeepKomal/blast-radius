@@ -3,6 +3,12 @@ name: release
 on:
   push:
     tags: ["v*"]
+  # "Run workflow" in the Actions tab: tags main as v<version> and releases it.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release from main, without the v (for example 0.2.0)"
+        required: true
 
 permissions:
   contents: write
@@ -12,18 +18,33 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # Manual releases only from main.
+    if: github.event_name == 'push' || github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           fetch-depth: 0
+      - name: Version to release (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "version must look like 1.2.3, got $VERSION" >&2
+            exit 1
+          fi
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+      - name: Tag from the push
+        if: github.event_name == 'push'
+        run: echo "TAG=$GITHUB_REF_NAME" >> "$GITHUB_ENV"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version: stable
       - run: go test -count=1 ./...
       - name: Release notes from CHANGELOG.md
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="${TAG#v}"
           awk -v v="$version" '
             $0 ~ "^## \\[" v "\\]" { found = 1; next }
             found && /^## \[/ { exit }
@@ -34,6 +55,15 @@ jobs:
             echo "CHANGELOG.md has no section for $version" >&2
             exit 1
           fi
+      # Created only after every check above passed, so a failed run leaves
+      # no tag behind.
+      - name: Create the tag (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA" >/dev/null
+          git tag "$TAG" "$GITHUB_SHA"
       - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7
         with:
           version: "~> v2"
