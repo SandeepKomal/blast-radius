@@ -132,9 +132,6 @@ gh attestation verify blast-radius_*_darwin_arm64.tar.gz --repo SandeepKomal/bla
 go install github.com/sandeepkomal/blast-radius@latest
 ```
 
-The dashboard features are on `main` and arrive in the next release; until then use
-`go install github.com/sandeepkomal/blast-radius@main`.
-
 Check it works: `blast-radius version`.
 
 ### 2. Connect it to Claude Code
