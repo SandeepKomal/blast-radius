@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sandeepkomal/blast-radius/internal/policy"
 )
 
 func TestLoopback(t *testing.T) {
@@ -65,8 +67,10 @@ func TestUIServesPage(t *testing.T) {
 func TestUIActivityFromAuditLog(t *testing.T) {
 	isolate(t)
 	log := filepath.Join(t.TempDir(), "audit.jsonl")
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	cfg := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "blast-radius", "config.json")
+	cfg, err := policy.UserConfigPath()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
 		t.Fatal(err)
 	}
