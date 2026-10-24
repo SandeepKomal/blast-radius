@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 
@@ -66,7 +65,7 @@ func hookCodex(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) in
 	}
 	req := request{
 		tool: "Bash", script: in.ToolInput.Command, dir: dir,
-		agent: agentInfo{ToolUseID: in.ToolUseID, SessionID: in.SessionID, Model: in.Model},
+		agent: agentInfo{ToolUseID: in.ToolUseID, SessionID: in.SessionID},
 	}
 	findings, verdicts, action := evaluate(req, run, stderr)
 	if action == policy.Pass {
