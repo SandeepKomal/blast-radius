@@ -31,11 +31,11 @@ func runCodexHookTest(t *testing.T, input string, runner analyze.Runner) (string
 func codexInput(command, cwd string) string {
 	b, _ := json.Marshal(map[string]any{
 		"hook_event_name": "PreToolUse",
-		"tool_name": "Bash",
-		"tool_use_id": "codex-test",
-		"session_id": "codex-session",
-		"cwd": cwd,
-		"tool_input": map[string]string{"command": command},
+		"tool_name":       "Bash",
+		"tool_use_id":     "codex-test",
+		"session_id":      "codex-session",
+		"cwd":             cwd,
+		"tool_input":      map[string]string{"command": command},
 	})
 	return string(b)
 }
