@@ -320,7 +320,8 @@ organisation does, plus a notice you can give your team.
 | Command | What it does |
 | --- | --- |
 | `blast-radius install [--project]` | Add the hooks to Claude Code |
-| `blast-radius uninstall [--project]` | Remove them |
+| `blast-radius uninstall [--project]` | Remove Claude Code hooks |
+| `blast-radius hook codex` | Run as a Codex desktop PreToolUse hook (configure manually) |
 | `blast-radius doctor` | Check the hook, config and tools, and run a self-test |
 | `blast-radius init [--user]` | Write a starter config (a repository's, or yours) |
 | `blast-radius config` | Print the policy in effect here |
