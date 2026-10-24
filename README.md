@@ -6,8 +6,7 @@
 [![CodeQL](https://github.com/SandeepKomal/blast-radius/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/SandeepKomal/blast-radius/actions/workflows/github-code-scanning/codeql)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/SandeepKomal/blast-radius/badge)](https://scorecard.dev/viewer/?uri=github.com/SandeepKomal/blast-radius)
 
-**See what your AI agent is about to destroy, before it does.** blast-radius is a Claude Code
-hook that previews what a `terraform apply`, `kubectl delete` or `helm uninstall` would delete,
+**See what your AI agent is about to destroy, before it does.** blast-radius is a Claude Code hook and a Codex PreToolUse adapter that previews what a `terraform apply`, `kubectl delete` or `helm uninstall` would delete,
 asks you first, and blocks it in production. A local dashboard shows everything your agent
 ran, which agent and model ran it, for which task, and what happened.
 
