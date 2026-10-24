@@ -88,7 +88,9 @@ func hookClaude(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (
 		recordEvent(in, stderr)
 		return 0
 	}
-	req := request{tool: in.ToolName, dir: in.Cwd, agent: in.agentInfo}
+	agent := in.agentInfo
+	agent.AgentPlatform = "claude_code"
+	req := request{tool: in.ToolName, dir: in.Cwd, agent: agent}
 	if req.dir == "" {
 		req.dir, _ = os.Getwd()
 	}
