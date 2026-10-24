@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -53,7 +55,9 @@ func TestCodexHookUsesExistingPolicyEngine(t *testing.T) {
 
 func TestCodexHookBlocksProductionAndMalformedInput(t *testing.T) {
 	isolate(t)
-	prod := t.TempDir() + "/prod"
+	root := t.TempDir()
+	prod := filepath.Join(root, "envs", "prod")
+	if err := os.MkdirAll(prod, 0o755); err != nil { t.Fatal(err) }
 	if decision, reason := runCodexHookTest(t, codexInput("terraform destroy -auto-approve", prod), planRunner(destroyPlan)); decision != "deny" || !strings.Contains(reason, "production") {
 		t.Fatalf("production destroy decision = %q, reason %q", decision, reason)
 	}
