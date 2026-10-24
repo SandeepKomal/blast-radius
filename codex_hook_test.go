@@ -40,7 +40,6 @@ func codexInput(command, cwd string) string {
 	return string(b)
 }
 
-
 func TestAgentPlatformAuditMetadata(t *testing.T) {
 	for _, platform := range []string{"codex", "claude_code"} {
 		b, err := json.Marshal(auditEntry{agentInfo: agentInfo{AgentPlatform: platform}})
