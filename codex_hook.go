@@ -48,8 +48,13 @@ func writeCodexDecision(w io.Writer, reason string) int {
 // hookCodex evaluates Codex Bash commands with the same analyzer and policy
 // engine as hookClaude. Unsupported events/tools are ignored. Malformed input
 // and non-pass decisions never silently allow a command.
-func hookCodex(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) int {
+func hookCodex(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (code int) {
 	var in codexHookInput
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			code = writeCodexDecision(stdout, "blast-radius encountered an internal error while checking this command; blocked for safety. Review it manually before running it.")
+		}
+	}()
 	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
 		return writeCodexDecision(stdout, "blast-radius could not read Codex hook input; command blocked for safety.")
 	}
