@@ -1,0 +1,71 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/sandeepkomal/blast-radius/internal/analyze"
+)
+
+func runCodexHookTest(t *testing.T, input string, runner analyze.Runner) (string, string) {
+	t.Helper()
+	var out, stderr bytes.Buffer
+	if code := hookCodex(strings.NewReader(input), &out, &stderr, runner); code != 0 {
+		t.Fatalf("hookCodex exit %d: %s", code, stderr.String())
+	}
+	if out.Len() == 0 {
+		return "", ""
+	}
+	var result codexHookOutput
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatalf("invalid hook output %q: %v", out.String(), err)
+	}
+	return result.HookSpecificOutput.PermissionDecision, result.HookSpecificOutput.PermissionDecisionReason
+}
+
+func codexInput(command, cwd string) string {
+	b, _ := json.Marshal(map[string]any{
+		"hook_event_name": "PreToolUse",
+		"tool_name": "Bash",
+		"tool_use_id": "codex-test",
+		"session_id": "codex-session",
+		"cwd": cwd,
+		"tool_input": map[string]string{"command": command},
+	})
+	return string(b)
+}
+
+func TestCodexHookUsesExistingPolicyEngine(t *testing.T) {
+	isolate(t)
+	dir := t.TempDir()
+	runner := planRunner(destroyPlan)
+
+	if decision, _ := runCodexHookTest(t, codexInput("git status", dir), runner); decision != "" {
+		t.Fatalf("harmless command decision = %q, want no decision", decision)
+	}
+	decision, reason := runCodexHookTest(t, codexInput("terraform destroy -auto-approve", dir), runner)
+	if decision != "deny" || !strings.Contains(reason, "human review") {
+		t.Fatalf("review-needed command decision = %q, reason %q", decision, reason)
+	}
+}
+
+func TestCodexHookBlocksProductionAndMalformedInput(t *testing.T) {
+	isolate(t)
+	prod := t.TempDir() + "/prod"
+	if decision, reason := runCodexHookTest(t, codexInput("terraform destroy -auto-approve", prod), planRunner(destroyPlan)); decision != "deny" || !strings.Contains(reason, "production") {
+		t.Fatalf("production destroy decision = %q, reason %q", decision, reason)
+	}
+	if decision, reason := runCodexHookTest(t, "not-json", planRunner(destroyPlan)); decision != "deny" || !strings.Contains(reason, "blocked for safety") {
+		t.Fatalf("malformed input decision = %q, reason %q", decision, reason)
+	}
+}
+
+func TestCodexHookIgnoresUnsupportedEvents(t *testing.T) {
+	isolate(t)
+	input := `{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"terraform destroy"}}`
+	if decision, reason := runCodexHookTest(t, input, planRunner(destroyPlan)); decision != "" || reason != "" {
+		t.Fatalf("unsupported event decision = %q, reason %q", decision, reason)
+	}
+}
