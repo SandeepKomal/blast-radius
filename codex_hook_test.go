@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -71,5 +72,16 @@ func TestCodexHookIgnoresUnsupportedEvents(t *testing.T) {
 	input := `{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"terraform destroy"}}`
 	if decision, reason := runCodexHookTest(t, input, planRunner(destroyPlan)); decision != "" || reason != "" {
 		t.Fatalf("unsupported event decision = %q, reason %q", decision, reason)
+	}
+}
+
+func TestCodexHookFailsClosedOnAnalyzerPanic(t *testing.T) {
+	isolate(t)
+	panicRunner := func(_ context.Context, _ string, _ []string, _ string, _ ...string) (analyze.Result, error) {
+		panic("simulated analyzer failure")
+	}
+	decision, reason := runCodexHookTest(t, codexInput("terraform destroy", t.TempDir()), panicRunner)
+	if decision != "deny" || !strings.Contains(reason, "blocked for safety") {
+		t.Fatalf("panic decision = %q, reason %q", decision, reason)
 	}
 }
