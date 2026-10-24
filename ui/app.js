@@ -98,8 +98,10 @@ function riskyEntries() {
 function agentOf(e) {
   if (e.tool === "check") return { name: "blast-radius check", sub: "", model: "", session: "" };
   const ses = idx.sessions.get(e.session_id) || {};
+  const platformNames = { codex: "Codex", claude_code: "Claude Code" };
+  const name = platformNames[e.agent_platform] || "Legacy / Unknown";
   return {
-    name: "Claude Code",
+    name,
     sub: e.agent_type || (e.session_id ? "main agent" : ""),
     model: ses.model || "",
     session: e.session_id || "",
