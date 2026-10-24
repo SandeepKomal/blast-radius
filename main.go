@@ -45,6 +45,7 @@ Usage:
   blast-radius audit prune|forget|export ...
                                      apply retention, erase or export entries in the audit log
   blast-radius hook claude           run as a Claude Code hook (reads JSON on stdin)
+  blast-radius hook codex            run as a Codex PreToolUse hook (reads JSON on stdin)
   blast-radius version
 
 check exits 0 when the command can run, 10 when it needs approval, 20 when it is blocked.
@@ -68,11 +69,19 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "hook":
-		if len(args) < 2 || args[1] != "claude" {
-			fmt.Fprintln(stderr, "usage: blast-radius hook claude")
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "usage: blast-radius hook claude|codex")
 			return 2
 		}
-		return hookClaude(stdin, stdout, stderr, analyze.ExecRunner)
+		switch args[1] {
+		case "claude":
+			return hookClaude(stdin, stdout, stderr, analyze.ExecRunner)
+		case "codex":
+			return hookCodex(stdin, stdout, stderr, analyze.ExecRunner)
+		default:
+			fmt.Fprintln(stderr, "usage: blast-radius hook claude|codex")
+			return 2
+		}
 	case "check":
 		return check(args[1:], stdout, stderr, analyze.ExecRunner)
 	case "install", "uninstall":
