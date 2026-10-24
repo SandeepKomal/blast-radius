@@ -16,20 +16,20 @@ import (
 // manual review path.
 type codexHookInput struct {
 	HookEventName string `json:"hook_event_name"`
-	ToolName string `json:"tool_name"`
-	ToolUseID string `json:"tool_use_id"`
-	SessionID string `json:"session_id"`
-	Cwd string `json:"cwd"`
-	Model string `json:"model"`
-	ToolInput struct {
+	ToolName      string `json:"tool_name"`
+	ToolUseID     string `json:"tool_use_id"`
+	SessionID     string `json:"session_id"`
+	Cwd           string `json:"cwd"`
+	Model         string `json:"model"`
+	ToolInput     struct {
 		Command string `json:"command"`
 	} `json:"tool_input"`
 }
 
 type codexHookOutput struct {
 	HookSpecificOutput struct {
-		HookEventName string `json:"hookEventName"`
-		PermissionDecision string `json:"permissionDecision"`
+		HookEventName            string `json:"hookEventName"`
+		PermissionDecision       string `json:"permissionDecision"`
 		PermissionDecisionReason string `json:"permissionDecisionReason"`
 	} `json:"hookSpecificOutput"`
 }

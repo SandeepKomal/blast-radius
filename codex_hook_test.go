@@ -31,11 +31,11 @@ func runCodexHookTest(t *testing.T, input string, runner analyze.Runner) (string
 func codexInput(command, cwd string) string {
 	b, _ := json.Marshal(map[string]any{
 		"hook_event_name": "PreToolUse",
-		"tool_name": "Bash",
-		"tool_use_id": "codex-test",
-		"session_id": "codex-session",
-		"cwd": cwd,
-		"tool_input": map[string]string{"command": command},
+		"tool_name":       "Bash",
+		"tool_use_id":     "codex-test",
+		"session_id":      "codex-session",
+		"cwd":             cwd,
+		"tool_input":      map[string]string{"command": command},
 	})
 	return string(b)
 }
@@ -58,7 +58,9 @@ func TestCodexHookBlocksProductionAndMalformedInput(t *testing.T) {
 	isolate(t)
 	root := t.TempDir()
 	prod := filepath.Join(root, "envs", "prod")
-	if err := os.MkdirAll(prod, 0o755); err != nil { t.Fatal(err) }
+	if err := os.MkdirAll(prod, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if decision, reason := runCodexHookTest(t, codexInput("terraform destroy -auto-approve", prod), planRunner(destroyPlan)); decision != "deny" || !strings.Contains(reason, "production") {
 		t.Fatalf("production destroy decision = %q, reason %q", decision, reason)
 	}
