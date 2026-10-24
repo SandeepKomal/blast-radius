@@ -23,8 +23,8 @@ type auditEntry struct {
 	agentInfo
 }
 
-// agentInfo identifies the Claude Code session, subagent and prompt a
-// command came from, so the dashboard can tie it to what happened next.
+// agentInfo identifies the originating agent and, where available, its session
+// and tool metadata so the dashboard can attribute each audit event.
 type agentInfo struct {
 	SessionID      string `json:"session_id,omitempty"`
 	PromptID       string `json:"prompt_id,omitempty"`
@@ -32,6 +32,7 @@ type agentInfo struct {
 	AgentID        string `json:"agent_id,omitempty"`
 	AgentType      string `json:"agent_type,omitempty"`
 	PermissionMode string `json:"permission_mode,omitempty"`
+	AgentPlatform  string `json:"agent_platform,omitempty"`
 }
 
 type auditFinding struct {
