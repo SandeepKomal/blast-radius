@@ -40,6 +40,30 @@ func codexInput(command, cwd string) string {
 	return string(b)
 }
 
+
+func TestAgentPlatformAuditMetadata(t *testing.T) {
+	for _, platform := range []string{"codex", "claude_code"} {
+		b, err := json.Marshal(auditEntry{agentInfo: agentInfo{AgentPlatform: platform}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(b, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["agent_platform"] != platform {
+			t.Errorf("agent_platform = %v, want %q", got["agent_platform"], platform)
+		}
+	}
+	b, err := json.Marshal(auditEntry{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "agent_platform") {
+		t.Errorf("legacy/unknown platform should be omitted when empty: %s", b)
+	}
+}
+
 func TestCodexHookUsesExistingPolicyEngine(t *testing.T) {
 	isolate(t)
 	dir := t.TempDir()
