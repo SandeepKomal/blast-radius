@@ -40,7 +40,7 @@ func writeCodexDecision(w io.Writer, reason string) int {
 	out.HookSpecificOutput.PermissionDecision = "deny"
 	out.HookSpecificOutput.PermissionDecisionReason = reason
 	if err := json.NewEncoder(w).Encode(out); err != nil {
-		return 1
+		return 2
 	}
 	return 0
 }
