@@ -144,6 +144,52 @@ This adds the hook to `~/.claude/settings.json` (all your projects). Use
 `.claude/settings.json`. If you installed an older version, run it again: it adds the hooks
 that record which agent ran a command and whether it ran.
 
+### Codex desktop app (experimental)
+
+Codex supports command hooks through `~/.codex/hooks.json` or a trusted repository's
+`.codex/hooks.json`. The adapter uses the same analyzer and policy engine as the Claude Code
+hook; it does not fork or replace the safety engine.
+
+1. Install the current blast-radius binary and confirm `blast-radius version` works from a terminal.
+2. Add the following event to your existing `~/.codex/hooks.json` (merge it into the existing
+   `hooks` object; do not overwrite your other hooks). Replace the command with the absolute path
+   to your installed binary if Codex's PATH does not include it:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^Bash$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "blast-radius hook codex",
+            "timeout": 300,
+            "statusMessage": "Previewing infrastructure impact"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+3. Restart Codex desktop, review and trust the hook when Codex prompts you, then test in a
+   disposable repository with `blast-radius check` before allowing the agent to run infrastructure
+   changes.
+
+**Important difference from Claude Code:** Codex's `PreToolUse` hook does not support an
+interactive `ask` decision yet. Therefore, when blast-radius policy returns `ask`, the Codex
+adapter denies the tool call and explains how to review it manually. Policy `deny` also denies;
+policy `pass` emits no decision and lets Codex continue. Malformed hook input and internal errors
+are blocked for safety.
+
+This initial adapter covers Codex `Bash` commands only. It does not yet intercept file-edit tools,
+and it does not provide an automatic Codex installer/uninstaller. The existing
+`blast-radius install` and `blast-radius uninstall` commands remain Claude Code-specific and are
+unchanged. Codex's hook system is a useful guardrail, not a complete enforcement boundary.
+
 ### 3. Turn on the activity log
 
 ```bash
