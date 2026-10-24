@@ -70,7 +70,7 @@ func hookCodex(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (c
 	}
 	req := request{
 		tool: "Bash", script: in.ToolInput.Command, dir: dir,
-		agent: agentInfo{ToolUseID: in.ToolUseID, SessionID: in.SessionID},
+		agent: agentInfo{ToolUseID: in.ToolUseID, SessionID: in.SessionID, AgentPlatform: "codex"},
 	}
 	findings, verdicts, action := evaluate(req, run, stderr)
 	if action == policy.Pass {
