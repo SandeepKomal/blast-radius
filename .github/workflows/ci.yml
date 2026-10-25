@@ -114,7 +114,7 @@ jobs:
           echo "eb0e3558bb453241301126a15a9eeee3592817d8013ddd44793aeac168da9ad1  $RUNNER_TEMP/terragrunt" | sha256sum -c -
           chmod +x "$RUNNER_TEMP/terragrunt"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
-      - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
       - name: Tool versions
         run: |
           terraform version
