@@ -106,7 +106,7 @@ jobs:
         with:
           tofu_wrapper: false
       - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
-      - uses: pulumi/actions@8582a9e8cc630786854029b4e09281acd6794b58 # v6
+      - uses: pulumi/actions@8e5e406f4007fca908480587cb9893c07090f58d # v7.0.0
       - name: Install terragrunt
         run: |
           curl -sSfL -o "$RUNNER_TEMP/terragrunt" https://github.com/gruntwork-io/terragrunt/releases/download/v0.69.1/terragrunt_linux_amd64
