@@ -18,8 +18,12 @@ test.beforeAll(async () => {
     ["gemini_cli", "terraform destroy gemini"],
     ["my-agent", "terraform destroy custom"],
     [undefined, "terraform destroy legacy"],
-  ].map(([platform, command], index) => ({
-    time: new Date(now - index * 1000).toISOString(),
+    // Older commands, for the 7 and 30 day ranges; the last is outside both.
+    ["codex", "terraform destroy last week", 3],
+    ["codex", "terraform destroy last month", 12],
+    ["codex", "terraform destroy too old", 45],
+  ].map(([platform, command, daysAgo = 0], index) => ({
+    time: new Date(now - daysAgo * 86400e3 - index * 1000).toISOString(),
     tool: "Bash",
     dir: tempDir,
     command,
@@ -99,4 +103,17 @@ test("command palette finds a command and opens it", async ({ page }) => {
   await expect(page.locator("#palette")).toBeHidden();
   await expect(page.locator("#drawer")).toHaveClass(/open/);
   await expect(page.locator("#drawer-body")).toContainText("terraform destroy codex");
+});
+
+test("each range counts only the commands inside it", async ({ page }) => {
+  await page.goto(baseURL + "/#overview");
+  for (const [range, n] of [["7d", 6], ["30d", 7], ["24h", 5]]) {
+    await page.locator(`#range [data-range="${range}"]`).click();
+    await expect(page.locator("#kpis .kpi-value").first()).toHaveText(String(n));
+    await expect(page.locator("#radar .blip")).toHaveCount(n);
+    await expect(page.locator("#nav-count")).toHaveText(String(n));
+  }
+  await page.locator('#range [data-range="30d"]').click();
+  await page.goto(baseURL + "/#activity");
+  await expect(page.locator("#rows tr").filter({ hasText: "too old" })).toHaveCount(0);
 });
