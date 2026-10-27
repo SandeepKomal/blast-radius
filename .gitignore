@@ -4,3 +4,6 @@ examples/demo/.terraform/
 examples/demo/.terraform.lock.hcl
 examples/demo/terraform.tfstate*
 examples/demo/terraform.tfstate.d/
+node_modules/
+test-results/
+playwright-report/
