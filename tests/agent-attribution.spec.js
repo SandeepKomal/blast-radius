@@ -18,8 +18,12 @@ test.beforeAll(async () => {
     ["gemini_cli", "terraform destroy gemini"],
     ["my-agent", "terraform destroy custom"],
     [undefined, "terraform destroy legacy"],
-  ].map(([platform, command], index) => ({
-    time: new Date(now - index * 1000).toISOString(),
+    // Older commands, for the 7 and 30 day ranges; the last is outside both.
+    ["codex", "terraform destroy last week", 3],
+    ["codex", "terraform destroy last month", 12],
+    ["codex", "terraform destroy too old", 45],
+  ].map(([platform, command, daysAgo = 0], index) => ({
+    time: new Date(now - daysAgo * 86400e3 - index * 1000).toISOString(),
     tool: "Bash",
     dir: tempDir,
     command,
@@ -29,9 +33,12 @@ test.beforeAll(async () => {
   }));
   await writeFile(logPath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
 
+  // In its own process group, so stopping it also stops the binary go run
+  // starts; a leftover server would answer the next run with stale data.
   server = spawn("go", ["run", ".", "ui", "--addr", "127.0.0.1:17357", "--log", logPath], {
     cwd: process.cwd(),
     stdio: "ignore",
+    detached: true,
   });
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
@@ -49,7 +56,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (server && server.exitCode === null) {
-    server.kill("SIGTERM");
+    process.kill(-server.pid, "SIGTERM");
   }
   if (tempDir) await rm(tempDir, { recursive: true, force: true });
 });
@@ -74,4 +81,39 @@ test("agent filter and breakdown list every agent", async ({ page }) => {
   await page.locator("#agent-filter").selectOption("Codex");
   await expect(page.locator("#rows tr td.agent")).toHaveCount(1);
   await expect(page.locator("#rows tr td.agent")).toHaveText("Codex");
+});
+
+test("radar plots every risky command and opens its details", async ({ page }) => {
+  await page.goto(baseURL + "/#overview");
+  const blips = page.locator("#radar .blip");
+  await expect(blips).toHaveCount(5);
+  await expect(page.locator("#status-word")).toHaveText("All clear");
+  await page.locator("#radar .blip").first().focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#drawer")).toHaveClass(/open/);
+});
+
+test("command palette finds a command and opens it", async ({ page }) => {
+  await page.goto(baseURL + "/#overview");
+  await page.keyboard.press("Control+k");
+  await expect(page.locator("#palette")).toBeVisible();
+  await page.locator("#palette-q").fill("destroy codex");
+  await expect(page.locator("#palette-list .palette-item")).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#palette")).toBeHidden();
+  await expect(page.locator("#drawer")).toHaveClass(/open/);
+  await expect(page.locator("#drawer-body")).toContainText("terraform destroy codex");
+});
+
+test("each range counts only the commands inside it", async ({ page }) => {
+  await page.goto(baseURL + "/#overview");
+  for (const [range, n] of [["7d", 6], ["30d", 7], ["24h", 5]]) {
+    await page.locator(`#range [data-range="${range}"]`).click();
+    await expect(page.locator("#kpis .kpi-value").first()).toHaveText(String(n));
+    await expect(page.locator("#radar .blip")).toHaveCount(n);
+    await expect(page.locator("#nav-count")).toHaveText(String(n));
+  }
+  await page.locator('#range [data-range="30d"]').click();
+  await page.goto(baseURL + "/#activity");
+  await expect(page.locator("#rows tr").filter({ hasText: "too old" })).toHaveCount(0);
 });
