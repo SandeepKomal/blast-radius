@@ -153,13 +153,13 @@ func TestAuditAll(t *testing.T) {
 func TestHasRecordingHooks(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	old := map[string]any{"PreToolUse": hookEntries("/bin/blast-radius")["PreToolUse"]}
-	if _, err := updateSettings(path, old); err != nil {
+	if _, err := updateSettings(path, hookTargets["claude"], old); err != nil {
 		t.Fatal(err)
 	}
 	if hasRecordingHooks(path) {
 		t.Error("an install with only PreToolUse has recording hooks")
 	}
-	if _, err := updateSettings(path, hookEntries("/bin/blast-radius")); err != nil {
+	if _, err := updateSettings(path, hookTargets["claude"], hookEntries("/bin/blast-radius")); err != nil {
 		t.Fatal(err)
 	}
 	if !hasRecordingHooks(path) {

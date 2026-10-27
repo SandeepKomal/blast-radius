@@ -34,8 +34,10 @@ func versionString() string {
 const usage = `blast-radius shows what an infrastructure command would break before an AI agent runs it.
 
 Usage:
-  blast-radius install [--project]   add the Claude Code hook (user settings, or .claude/settings.json)
-  blast-radius uninstall [--project] remove the Claude Code hook
+  blast-radius install [--agent claude|codex|gemini|copilot] [--project]
+                                     add the hooks to an agent (default Claude Code), for you or this repository
+  blast-radius uninstall [--agent claude|codex|gemini|copilot] [--project]
+                                     remove them
   blast-radius check [-C dir] [--json] [--shell bash|powershell] [--agent name] <command>
                                      preview a command yourself, or from any agent's hook
   blast-radius doctor                check that the hook, config and tools are set up correctly
@@ -44,8 +46,8 @@ Usage:
   blast-radius ui [--addr host:port] open a local dashboard of what was checked, asked and blocked
   blast-radius audit prune|forget|export ...
                                      apply retention, erase or export entries in the audit log
-  blast-radius hook claude           run as a Claude Code hook (reads JSON on stdin)
-  blast-radius hook codex            run as a Codex PreToolUse hook (reads JSON on stdin)
+  blast-radius hook claude|codex|gemini|copilot
+                                     run as that agent's hook (reads JSON on stdin)
   blast-radius version
 
 check exits 0 when the command can run, 10 when it needs approval, 20 when it is blocked.
@@ -69,19 +71,14 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "hook":
-		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: blast-radius hook claude|codex")
+		hooks := map[string]func(io.Reader, io.Writer, io.Writer, analyze.Runner) int{
+			"claude": hookClaude, "codex": hookCodex, "gemini": hookGemini, "copilot": hookCopilot,
+		}
+		if len(args) < 2 || hooks[args[1]] == nil {
+			fmt.Fprintln(stderr, "usage: blast-radius hook claude|codex|gemini|copilot")
 			return 2
 		}
-		switch args[1] {
-		case "claude":
-			return hookClaude(stdin, stdout, stderr, analyze.ExecRunner)
-		case "codex":
-			return hookCodex(stdin, stdout, stderr, analyze.ExecRunner)
-		default:
-			fmt.Fprintln(stderr, "usage: blast-radius hook claude|codex")
-			return 2
-		}
+		return hooks[args[1]](stdin, stdout, stderr, analyze.ExecRunner)
 	case "check":
 		return check(args[1:], stdout, stderr, analyze.ExecRunner)
 	case "install", "uninstall":

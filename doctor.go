@@ -57,8 +57,13 @@ func doctor(stdout io.Writer, run analyze.Runner) int {
 			}
 		}
 	}
+	for _, agent := range []string{"codex", "gemini", "copilot"} {
+		if checkAgentHooks(c, agent) {
+			installed = true
+		}
+	}
 	if !installed {
-		c.fail("no blast-radius hook in %s or %s; run `blast-radius install`", user, project)
+		c.fail("no blast-radius hook in %s or %s, or for another agent; run `blast-radius install [--agent claude|codex|gemini|copilot]`", user, project)
 	}
 
 	dir, _ := os.Getwd()
@@ -229,6 +234,108 @@ func checkHook(c *checkList, path string, h map[string]any) {
 	}
 }
 
+// checkAgentHooks reports blast-radius's hooks for an agent other than
+// Claude Code, in the user's and this repository's settings, and says
+// whether there were any.
+func checkAgentHooks(c *checkList, agent string) bool {
+	t := hookTargets[agent]
+	found := false
+	for _, project := range []bool{false, true} {
+		path, err := t.path(project)
+		if err != nil {
+			continue
+		}
+		h, err := findAgentHook(path, t)
+		switch {
+		case err != nil:
+			c.fail("%s: %v", path, err)
+			continue
+		case h == nil:
+			continue
+		}
+		found = true
+		c.ok("%s hook installed in %s", t.name, path)
+		program := hookProgram(h, agent)
+		if filepath.IsAbs(program) {
+			if _, err := os.Stat(program); err != nil {
+				c.fail("%s hook command %s does not exist, so %s skips the hook and runs every command. Run `blast-radius install --agent %s` again", t.name, program, t.name, agent)
+			}
+		} else if _, err := exec.LookPath(program); err != nil {
+			c.warn("%s hook command %q is not on PATH here; %s may not find it either", t.name, program, t.name)
+		}
+	}
+	if found && agent == "codex" {
+		c.info("Codex runs a hook only after you trust it: open /hooks in Codex and trust the blast-radius hooks")
+	}
+	return found
+}
+
+// findAgentHook returns blast-radius's PreToolUse (or Gemini CLI BeforeTool)
+// hook in an agent's settings file, or nil if it has none.
+func findAgentHook(path string, t hookTarget) (map[string]any, error) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var settings struct {
+		Hooks map[string]json.RawMessage `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &settings); err != nil {
+		// Some agents allow comments in their settings; only a file that
+		// mentions blast-radius can hold its hook.
+		if !bytes.Contains(b, []byte("blast-radius")) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("not valid JSON: %w", err)
+	}
+	for _, event := range []string{"PreToolUse", "BeforeTool"} {
+		var entries []map[string]any
+		if json.Unmarshal(settings.Hooks[event], &entries) != nil {
+			continue
+		}
+		for _, e := range entries {
+			if t.ownFile {
+				if t.ours(e) {
+					return e, nil
+				}
+				continue
+			}
+			inner, _ := e["hooks"].([]any)
+			for _, h := range inner {
+				if t.ours(h) {
+					return h.(map[string]any), nil
+				}
+			}
+		}
+	}
+	return nil, nil
+}
+
+// hookProgram is the program an agent's hook runs: its exec field, or its
+// command line without the quoting and "hook <agent>" that shellCommand
+// added.
+func hookProgram(h map[string]any, agent string) string {
+	if exe, ok := h["exec"].(string); ok {
+		return exe
+	}
+	cmd, _ := h["command"].(string)
+	program := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(cmd), " hook "+agent))
+	if p, ok := strings.CutPrefix(program, "& "); ok {
+		// PowerShell: & 'C:\...' with '' for a quote.
+		if len(p) >= 2 && p[0] == '\'' && p[len(p)-1] == '\'' {
+			return strings.ReplaceAll(p[1:len(p)-1], "''", "'")
+		}
+		return p
+	}
+	if len(program) >= 2 && (program[0] == '\'' || program[0] == '"') && program[len(program)-1] == program[0] {
+		program = strings.ReplaceAll(program[1:len(program)-1], `'\''`, "'")
+	}
+	return program
+}
+
 // selfTest runs the hook on inputs with known answers, without touching
 // any real infrastructure.
 // selfTesting is set while doctor runs sample inputs through the hook, so
@@ -263,6 +370,25 @@ func selfTest(c *checkList) {
 		}
 		if got != tc.want {
 			c.fail("self-test %s: got %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	// Hooks for the other agents must block what they can't read: those
+	// agents run the command when a hook fails.
+	for agent, hook := range map[string]func(io.Reader, io.Writer, io.Writer, analyze.Runner) int{
+		"codex": hookCodex, "gemini": hookGemini, "copilot": hookCopilot,
+	} {
+		var out bytes.Buffer
+		code := hook(strings.NewReader("not json"), &out, io.Discard, fake)
+		var o struct {
+			Decision           string `json:"decision"`
+			PermissionDecision string `json:"permissionDecision"`
+			HookSpecificOutput struct {
+				PermissionDecision string `json:"permissionDecision"`
+			} `json:"hookSpecificOutput"`
+		}
+		if code != 0 || json.Unmarshal(out.Bytes(), &o) != nil ||
+			o.Decision+o.PermissionDecision+o.HookSpecificOutput.PermissionDecision != "deny" {
+			c.fail("self-test %s: unreadable input was not denied (exit %d, output %q)", agent, code, out.String())
 		}
 	}
 	c.ok("self-test: hook decisions are correct")

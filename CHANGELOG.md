@@ -15,6 +15,35 @@ All notable changes to this project are documented here. The format follows
   by any agent, so agents without a built-in hook appear in the dashboard.
 - The Codex hook records the model, and Codex's `SessionStart`,
   `UserPromptSubmit` and `PostToolUse` events, like Claude Code's.
+- `blast-radius install --agent codex|gemini|copilot` installs the hook for
+  Codex, Gemini CLI and GitHub Copilot CLI, with the absolute path of the
+  binary; `uninstall --agent` removes it, and `doctor` and the dashboard's
+  Setup page check it.
+- Hooks for Gemini CLI (`hook gemini`) and GitHub Copilot CLI
+  (`hook copilot`), checking shell commands and file edits.
+- The Codex hook checks `apply_patch` file edits.
+- End-to-end tests run the real Codex CLI against a mock model.
+- The Setup page finds paranoid-sre in the skill folders of Codex, Gemini
+  CLI and Copilot CLI (`~/.agents/skills` and each agent's own), not only
+  Claude Code's.
+
+### Fixed
+
+- Codex hooks did nothing until trusted in Codex's `/hooks`, and Codex
+  skipped them without a warning. `install --agent codex` and `doctor` now
+  say so, and the README explains it.
+- When the Codex hook couldn't write its answer, it exited 2 without a
+  reason on stderr, which Codex ignores; the command then ran.
+
+### Security
+
+- Self-protection covers every supported agent: commands and file edits
+  that change Codex, Gemini CLI or Copilot hook settings need approval.
+- Self-protection could be bypassed with a path written differently:
+  `~/.codex/./hooks.json`, `~/.Claude/settings.json`, a relative path after
+  `cd`, a trailing dot on Windows, or removing the whole folder. Paths are
+  now normalised and resolved against the command's directory, and folders
+  holding a hook count as the hook.
 
 ### Security
 
