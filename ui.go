@@ -176,6 +176,8 @@ type setupStep struct {
 	Done    bool   `json:"done"`
 	Detail  string `json:"detail"`
 	Unknown bool   `json:"unknown,omitempty"`
+	// Optional steps don't count towards setup being done.
+	Optional bool `json:"optional,omitempty"`
 }
 
 type uiStatus struct {
@@ -250,6 +252,7 @@ func (s *uiServer) status(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	st.Steps = append(st.Steps, hook)
+	st.Steps = append(st.Steps, otherAgentsStep())
 	logStep := setupStep{ID: "log", Done: enabled}
 	if enabled {
 		logStep.Detail = log
@@ -261,13 +264,49 @@ func (s *uiServer) status(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, st)
 }
 
+// otherAgentsStep reports which agents other than Claude Code have the
+// blast-radius hook.
+func otherAgentsStep() setupStep {
+	var found []string
+	for _, agent := range []string{"codex", "gemini", "copilot"} {
+		t := hookTargets[agent]
+		for _, project := range []bool{false, true} {
+			p, err := t.path(project)
+			if err != nil {
+				continue
+			}
+			if h, err := findAgentHook(p, t); err == nil && h != nil {
+				found = append(found, t.name+": "+p)
+			}
+		}
+	}
+	return setupStep{ID: "agents", Optional: true, Done: len(found) > 0, Detail: strings.Join(found, " · ")}
+}
+
 // paranoidInstalled says where the paranoid-sre skill is installed, or ""
-// if it can't find it.
+// if it can't find it. It looks in the skill folders of every agent
+// blast-radius supports: .agents/skills is shared by Codex, Gemini CLI and
+// Copilot CLI.
 func paranoidInstalled(dir string) string {
 	home, _ := os.UserHomeDir()
+	codexHome := os.Getenv("CODEX_HOME")
+	if codexHome == "" {
+		codexHome = filepath.Join(home, ".codex")
+	}
+	copilotHome := os.Getenv("COPILOT_HOME")
+	if copilotHome == "" {
+		copilotHome = filepath.Join(home, ".copilot")
+	}
 	for _, p := range []string{
 		filepath.Join(dir, ".claude", "skills", "paranoid", "SKILL.md"),
 		filepath.Join(home, ".claude", "skills", "paranoid", "SKILL.md"),
+		filepath.Join(dir, ".agents", "skills", "paranoid", "SKILL.md"),
+		filepath.Join(home, ".agents", "skills", "paranoid", "SKILL.md"),
+		filepath.Join(codexHome, "skills", "paranoid", "SKILL.md"),
+		filepath.Join(dir, ".gemini", "skills", "paranoid", "SKILL.md"),
+		filepath.Join(home, ".gemini", "skills", "paranoid", "SKILL.md"),
+		filepath.Join(dir, ".github", "skills", "paranoid", "SKILL.md"),
+		filepath.Join(copilotHome, "skills", "paranoid", "SKILL.md"),
 	} {
 		if _, err := os.Stat(p); err == nil {
 			return filepath.Dir(p)

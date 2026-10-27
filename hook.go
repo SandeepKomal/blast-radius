@@ -8,7 +8,6 @@ import (
 
 	"github.com/sandeepkomal/blast-radius/internal/analyze"
 	"github.com/sandeepkomal/blast-radius/internal/policy"
-	"github.com/sandeepkomal/blast-radius/internal/render"
 )
 
 // Told to the agent when a command is blocked, so it stops instead of
@@ -118,14 +117,7 @@ func hookClaude(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (
 	if action == policy.Pass {
 		return 0
 	}
-	reason := render.Text(findings, verdicts, false)
-	if action == policy.Deny {
-		reason += denyAdvice
-	} else if w := askWarning(findings); w != "" {
-		// Claude Code preselects "Yes" in its prompt, so lead with what is lost.
-		reason = w + "\n" + reason
-	}
-	return writeDecision(stdout, action, reason)
+	return writeDecision(stdout, action, hookReason(findings, verdicts, action))
 }
 
 // askWarning summarises how many resources a command would delete, or

@@ -96,10 +96,14 @@
         </article>
       </div>
 
-      <div class="grid g-1-1">
+      <div class="grid g-1-1-1">
         <article class="card">
           <header class="card-head"><div><h2>By environment</h2><p class="muted">Where risky commands were aimed</p></div></header>
           <div id="by-env"></div>
+        </article>
+        <article class="card">
+          <header class="card-head"><div><h2>By agent</h2><p class="muted">Which AI agent tried them</p></div></header>
+          <div id="by-agent"></div>
         </article>
         <article class="card">
           <header class="card-head"><div><h2>By tool</h2><p class="muted">Which CLI ran them</p></div></header>
@@ -136,6 +140,7 @@
             <button role="radio" aria-checked="false" data-filter="pass">Allowed</button>
           </div>
           <select id="tool-filter" aria-label="Tool"><option value="">All tools</option></select>
+          <select id="agent-filter" aria-label="Agent" hidden><option value="">All agents</option></select>
           <div class="search-box">
             <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/></svg>
             <input id="search" type="search" placeholder="Search commands, folders, environments" aria-label="Search">
