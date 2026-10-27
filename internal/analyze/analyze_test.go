@@ -402,6 +402,28 @@ func TestGuard(t *testing.T) {
 		`sed -i 's/blast-radius//' .claude/settings.local.json`,
 		`cp permissive.json ~/.config/blast-radius/config.json`,
 		`Remove-Item .blast-radius.json`,
+		`echo '{}' > ~/.codex/hooks.json`,
+		`sed -i 's/hooks = true/hooks = false/' ~/.codex/config.toml`,
+		`jq 'del(.hooks)' ~/.gemini/settings.json > /tmp/s && mv /tmp/s ~/.gemini/settings.json`,
+		`rm ~/.copilot/hooks/blast-radius.json`,
+		`git rm .github/hooks/blast-radius.json`,
+		`blast-radius uninstall --agent codex`,
+		`rm ~/.codex/./hooks.json`,
+		`rm ~/.codex//hooks.json`,
+		`rm ~/.Claude/settings.json`,
+		`cp x.json ~/.claude/../.claude/settings.json`,
+		`rm ~/.gemini/tmp/../settings.json`,
+		`cd ~/.codex && rm hooks.json`,
+		`cd .gemini; echo {} > settings.json`,
+		`rm -rf ~/.codex`,
+		`mv ~/.copilot/hooks /tmp/h`,
+		`rm -rf .github`,
+		`rm -rf ~/.claude`,
+		`rm ~/.gemini/settings.json.`,
+		`rm '~/.claude/settings.json::$DATA'`,
+		`rm $CODEX_HOME/hooks.json`,
+		`rm -rf "${COPILOT_HOME}/hooks"`,
+		`rm %APPDATA%/blast-radius/config.json`,
 	}
 	for _, script := range guarded {
 		findings, _ := analyze(t, script, nil)
@@ -415,6 +437,13 @@ func TestGuard(t *testing.T) {
 		`git diff .blast-radius.json`,
 		`blast-radius check terraform destroy`,
 		`blast-radius install`,
+		`cat ~/.codex/hooks.json`,
+		`rm .github/hooks/lint.json`,
+		`cd ~/.codex`,
+		`ls ~/.copilot/hooks`,
+		`rm -rf .github/workflows/old.yml`,
+		`cp -r paranoid ~/.claude/skills/`,
+		`mkdir -p ~/.agents/skills`,
 	}
 	for _, script := range allowed {
 		if findings, _ := analyze(t, script, nil); len(findings) != 0 {
@@ -602,6 +631,8 @@ func TestGuardWindowsPaths(t *testing.T) {
 		`Remove-Item .claude\settings.json`,
 		`Set-Content -Path C:\Users\me\.claude\settings.json -Value '{}'`,
 		`del .blast-radius.json`,
+		`Remove-Item $env:USERPROFILE\.copilot\hooks\blast-radius.json`,
+		`Set-Content C:\Users\me\.codex\hooks.json '{}'`,
 	} {
 		if f := a.Analyze(context.Background(), script, t.TempDir(), PowerShell); len(f) != 1 || !f[0].Guard {
 			t.Errorf("%s: %+v", script, f)
@@ -659,6 +690,25 @@ func TestAWSAccount(t *testing.T) {
 		findings, fk := analyze(t, script, nil)
 		if f := only(t, findings, fk.calls); f.Target != target {
 			t.Errorf("%s: target %q, want %q", script, f.Target, target)
+		}
+	}
+}
+
+func TestGuardAgentHomes(t *testing.T) {
+	codex, copilot := filepath.Join(t.TempDir(), "cx"), filepath.Join(t.TempDir(), "cp")
+	t.Setenv("CODEX_HOME", codex)
+	t.Setenv("COPILOT_HOME", copilot)
+	for _, p := range []string{
+		filepath.Join(codex, "hooks.json"), filepath.Join(codex, "config.toml"), codex,
+		filepath.Join(copilot, "hooks", "blast-radius.json"), filepath.Join(copilot, "hooks"), filepath.Join(copilot, "settings.json"),
+	} {
+		if !protectedPath(p) {
+			t.Errorf("%s is not protected", p)
+		}
+	}
+	for _, p := range []string{filepath.Join(codex, "sessions", "x.jsonl"), filepath.Join(copilot, "logs")} {
+		if protectedPath(p) {
+			t.Errorf("%s is protected", p)
 		}
 	}
 }

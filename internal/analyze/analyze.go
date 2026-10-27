@@ -202,7 +202,7 @@ func (a *Analyzer) Analyze(ctx context.Context, script, dir string, sh Shell) []
 			}
 		}
 		if f == nil {
-			f = guardCommand(c, prog)
+			f = guardCommand(c, prog, st.dir)
 		}
 		if f != nil && (f.Level > None || f.Guard) {
 			findings = append(findings, *f)
