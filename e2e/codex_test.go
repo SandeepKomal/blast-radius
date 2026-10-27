@@ -230,8 +230,7 @@ func patchCall(patch string) map[string]any {
 func TestCodex(t *testing.T) {
 	c := newCodexEnv(t)
 	dir := filepath.Join(c.home, "project")
-	prod := filepath.Join(dir, "envs", "prod")
-	if err := os.MkdirAll(prod, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	hooks := c.hooks(t, dir)
@@ -245,8 +244,14 @@ func TestCodex(t *testing.T) {
 		}
 	}
 
+	// Deleting from clusters that don't exist: the preview fails whether or
+	// not kubectl is installed, so blast-radius treats it as destructive,
+	// and the command itself can't change anything.
+	review := "kubectl delete namespace payments --context e2e-staging-missing"
+	production := "kubectl delete namespace payments --context e2e-prod-missing"
+
 	// Codex skips hooks nobody has trusted: the command runs unchecked.
-	if out := c.toolCall(t, dir, shellCall("terraform destroy -auto-approve")); strings.Contains(out, "blast-radius") {
+	if out := c.toolCall(t, dir, shellCall(review)); strings.Contains(out, "blast-radius") {
 		t.Fatalf("untrusted hook ran: %s", out)
 	}
 	c.trust(t, hooks)
@@ -258,8 +263,8 @@ func TestCodex(t *testing.T) {
 		wants []string
 	}{
 		{"harmless command runs", shellCall("echo hello-from-codex"), dir, []string{"hello-from-codex"}},
-		{"destroy needs review", shellCall("terraform destroy -auto-approve"), dir, []string{"blocked by PreToolUse hook", "requires human review"}},
-		{"production is blocked", shellCall("terraform destroy -auto-approve"), prod, []string{"blocked by PreToolUse hook", "Do not retry"}},
+		{"destroy needs review", shellCall(review), dir, []string{"blocked by PreToolUse hook", "requires human review"}},
+		{"production is blocked", shellCall(production), dir, []string{"blocked by PreToolUse hook", "Do not retry"}},
 		{"removing the hooks needs review", shellCall("rm ~/.codex/hooks.json"), dir, []string{"blocked by PreToolUse hook", "blast-radius settings"}},
 		{"patching the hooks needs review", patchCall("*** Begin Patch\n*** Delete File: " + filepath.Join(c.home, ".codex", "hooks.json") + "\n*** End Patch\n"), dir, []string{"blocked by PreToolUse hook", "blast-radius settings"}},
 		{"ordinary patch applies", patchCall("*** Begin Patch\n*** Add File: notes.txt\n+hello\n*** End Patch\n"), dir, []string{"notes.txt"}},
