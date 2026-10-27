@@ -170,7 +170,7 @@ func agentName(s string) (string, bool) {
 		return "", false
 	}
 	for _, r := range s {
-		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.') {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '-' && r != '_' && r != '.' {
 			return "", false
 		}
 	}
