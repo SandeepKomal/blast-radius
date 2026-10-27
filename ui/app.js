@@ -347,7 +347,7 @@ function renderRadar(list) {
     svg.append(s("line", { x1: r0 * Math.sin(a), y1: -r0 * Math.cos(a), x2: 94 * Math.sin(a), y2: -94 * Math.cos(a), class: major ? "radar-tick major" : "radar-tick" }));
   }
   svg.append(s("line", { x1: 0, y1: -94, x2: 0, y2: 94, class: "radar-axis" }), s("line", { x1: -94, y1: 0, x2: 94, y2: 0, class: "radar-axis" }));
-  svg.append(s("text", { x: 0, y: -97, class: "radar-label" }, "NOW"));
+  svg.append(s("text", { x: 0, y: -97, class: "radar-label" }, "Now"));
   svg.append(s("circle", { r: 7, class: "radar-core" }), s("circle", { r: 2.5, class: "radar-core-dot" }));
 
   const blips = list.filter((e) => e.action in RADAR_RING);
@@ -365,7 +365,7 @@ function renderRadar(list) {
       onmouseenter: (ev) => tip.note(ev, OUT[e.action].label + " · " + agentLabel(e) + " · " + ago(e.time), e.command),
       onmousemove: (ev) => tip.place(ev.clientX, ev.clientY),
       onmouseleave: () => tip.hide() });
-    if (e === newest) g.append(s("circle", { r: 7, class: "blip-ping" }));
+    if (e === newest) g.append(s("circle", { r: 7, class: "blip-new" }));
     g.append(s("path", { d: OUT[e.action].icon, class: "f-" + e.action, transform: `scale(${size.toFixed(2)}) translate(-8 -8)` }));
     svg.append(g);
   }

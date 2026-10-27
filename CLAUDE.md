@@ -65,6 +65,18 @@ on macOS and Windows: use `filepath`, `policy.UserConfigPath()` and the
 
 ## Dashboard conventions
 
+- Visual style: plain and calm, in the manner of Apple's, Anthropic's and
+  OpenAI's own interfaces. Solid surfaces with hairline borders and soft
+  shadows, the system font, sentence-case labels, generous spacing, and
+  color only where it carries meaning (the outcome colors and the brand
+  accent). No glass or backdrop blur, glows, gradients, decorative grids,
+  neon, or uppercase "HUD" labels. Motion only where it says something (a
+  preview running, a command waiting), and none under
+  `prefers-reduced-motion`.
+- The Overview opens with the radar (each risky command as a blip: blocked
+  in the inner ring, asked in the middle, allowed outside; the angle is when
+  it ran) and a plain-words status with the next step. Ctrl+K, Cmd+K or `/`
+  opens the command palette. Keep every view reachable from the keyboard.
 - Build DOM with the `h()` / `s()` helpers and `textContent`; never
   `innerHTML`. Everything shown comes from commands an agent wrote.
 - The CSP forbids inline styles: set sizes through `el.style` in JS or CSS
