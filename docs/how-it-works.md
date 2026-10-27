@@ -43,6 +43,39 @@ show which agent ran a command, for which task, and whether you approved it.
 Claude Code has no hook for a permission prompt you decline, so a command
 blast-radius asked about that never reports a result is shown as not run.
 
+## Other agents
+
+`blast-radius install --agent codex|gemini|copilot` adds the same check to
+another agent. Each agent sends its own hook input and expects its own
+answer, but every command goes through the same analysis, policy and
+activity log. Each entry records the agent in `agent_platform`.
+
+| | Codex | Gemini CLI | GitHub Copilot CLI |
+| --- | --- | --- | --- |
+| File | `~/.codex/hooks.json` | `~/.gemini/settings.json` | `~/.copilot/hooks/blast-radius.json` |
+| Event and tools | `PreToolUse`: `Bash`, `apply_patch` | `BeforeTool`: `run_shell_command`, `write_file`, `replace` | `PreToolUse`: `Bash`, `Edit`, `Write` |
+| Recorded events | `SessionStart`, `UserPromptSubmit`, `PostToolUse` | — | — |
+| `ask` becomes | a denial explaining how to review it | a denial explaining how to review it | `ask` |
+| Hook can't start or crashes | the command runs | the command runs | the command is blocked |
+| Hook times out | the command runs | not documented | the command runs |
+
+Codex, Gemini CLI and Copilot all let a command run when the hook can't
+start or times out. That's why the hook always answers before the agent's
+timeout, and why it writes its denial as JSON rather than relying on an
+exit code. Codex and Gemini CLI also accept exit code 2 with the reason on
+stderr, which the hook uses if it can't write its answer. For the same
+reason, the hook is installed with the absolute path of the binary, so it
+never depends on the agent's `PATH`.
+
+Codex only runs hooks you have trusted in `/hooks`, and asks again when a
+hook changes. Copilot's hook runs the binary directly (`exec`), except in a
+repository's `.github/hooks/`, where the cloud agent only runs hooks through
+bash. On Windows, the Gemini CLI and Copilot hooks parse commands as
+PowerShell, which those agents use there.
+
+An agent without a built-in hook can call `blast-radius check --agent NAME`,
+which records the command under that name and exits 0, 10 or 20.
+
 ## A command's path through blast-radius
 
 1. **Parse.** The command line is split into simple commands the way a shell
@@ -88,9 +121,10 @@ blast-radius asked about that never reports a result is shown as not run.
 | --- | --- |
 | A preview fails or times out | treated as `destroy` (asks, or denies in production) |
 | The config file is invalid | every risky command asks, with the error shown |
-| The hook input can't be read | ask |
-| blast-radius panics | ask |
+| The hook input can't be read | ask (deny for Codex, Gemini CLI and Copilot) |
+| blast-radius panics | ask (deny for Codex, Gemini CLI and Copilot) |
 | The hook can't start, crashes hard or exceeds 300 s | Claude Code blocks the call (`onFailure: "block"`) |
+| The same, with Codex or Gemini CLI | the agent runs the command: see [Other agents](#other-agents) |
 
 ## Self-protection
 
@@ -99,10 +133,24 @@ for attempts to switch it off:
 
 - `blast-radius uninstall`,
 - shell commands that write to (or redirect into) `.claude/settings.json`,
-  `.claude/settings.local.json`, `.blast-radius.json` or the user config,
-- Claude's Edit and Write tools changing any of those files.
+  `.claude/settings.local.json`, `.blast-radius.json` or the user config, or
+  another agent's hook settings: `.codex/hooks.json`, `.codex/config.toml`,
+  `.gemini/settings.json`, `.copilot/settings.json`,
+  `.copilot/hooks/blast-radius.json` and `.github/hooks/blast-radius.json`,
+- the agents' file tools (Claude's Edit and Write, Codex's `apply_patch`,
+  Gemini CLI's `write_file` and `replace`, Copilot's `edit` and `create`)
+  changing any of those files,
+- removing or moving a folder that holds one (`rm -rf ~/.codex`,
+  `mv .github x`), and the same files under `$CODEX_HOME` and
+  `$COPILOT_HOME`.
 
-These always ask, so you can still make the change yourself.
+Paths are compared after resolving them against the directory the command
+runs in (so `cd ~/.codex && rm hooks.json` counts), removing `./`, `//` and
+`..`, ignoring case, and dropping the trailing dots, spaces and `::$DATA`
+that Windows ignores.
+
+These always ask (or, for agents that can't ask, are denied), so you can
+still make the change yourself.
 
 ## Threat model
 

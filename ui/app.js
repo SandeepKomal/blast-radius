@@ -49,7 +49,7 @@ const PAGE = 50;
 
 const state = {
   entries: [], running: [], status: null, safe: load("safe", "1") === "1",
-  range: load("range", "24h"), filter: "all", tool: "", query: "",
+  range: load("range", "24h"), filter: "all", tool: "", agent: "", query: "",
   shown: PAGE, fresh: null, selected: null, tableView: false,
 };
 
@@ -98,14 +98,23 @@ function riskyEntries() {
 function agentOf(e) {
   if (e.tool === "check") return { name: "blast-radius check", sub: "", model: "", session: "" };
   const ses = idx.sessions.get(e.session_id) || {};
-  const platformNames = { codex: "Codex", claude_code: "Claude Code" };
-  const name = platformNames[e.agent_platform] || "Legacy / Unknown";
   return {
-    name,
+    name: platformName(e.agent_platform),
     sub: e.agent_type || (e.session_id ? "main agent" : ""),
-    model: ses.model || "",
+    model: ses.model || e.model || "",
     session: e.session_id || "",
   };
+}
+// Display names of the agents blast-radius has a hook for. Any other agent
+// (one calling `blast-radius check --agent NAME`) shows under its own name.
+const PLATFORMS = {
+  claude_code: "Claude Code", codex: "Codex", gemini_cli: "Gemini CLI", cursor: "Cursor",
+  copilot: "GitHub Copilot", windsurf: "Windsurf", cline: "Cline", opencode: "OpenCode",
+  aider: "Aider", amazon_q: "Amazon Q", continue: "Continue", roo_code: "Roo Code",
+};
+function platformName(p) {
+  if (!p) return "Legacy / Unknown";
+  return Object.hasOwn(PLATFORMS, p) ? PLATFORMS[p] : p;
 }
 function agentLabel(e) {
   const a = agentOf(e);
@@ -521,7 +530,7 @@ function renderTasks() {
   }));
 }
 
-// Agents: one row per Claude Code session and subagent.
+// Agents: one row per agent session and subagent.
 function renderAgents(list) {
   const groups = new Map();
   for (const e of list) {
@@ -542,7 +551,7 @@ function renderAgents(list) {
     const task = taskOf(g.last);
     return h("li", { onclick: () => openDrawer(g.last), title: "Open the latest command" },
       h("div", { class: "agent-top" },
-        h("span", { class: "avatar", "aria-hidden": "true" }, g.a.sub && g.a.sub !== "main agent" ? g.a.sub[0].toUpperCase() : "C"),
+        h("span", { class: "avatar", "aria-hidden": "true" }, (g.a.sub && g.a.sub !== "main agent" ? g.a.sub : g.a.name)[0].toUpperCase()),
         h("div", { class: "agent-name" },
           h("b", {}, g.a.name), g.a.sub && h("span", { class: "tag" }, g.a.sub),
           (idx.skills.get(g.a.session) || []).some((x) => PARANOID.test(x.skill)) && h("span", { class: "care-badge on small", title: "Used paranoid-sre" }, shield(), "paranoid-sre"),
@@ -630,6 +639,7 @@ function filtered() {
     && (state.safe || risky(e))
     && (state.filter === "all" || e.action === state.filter)
     && (!state.tool || toolsOf(e).includes(state.tool))
+    && (!state.agent || agentOf(e).name === state.agent)
     && (!q || [e.command, e.dir, envOf(e), agentLabel(e), agentOf(e).model, (taskOf(e) || {}).prompt]
       .some((x) => (x || "").toLowerCase().includes(q))));
 }
@@ -673,6 +683,13 @@ function renderTable() {
   if (sel.options.length - 1 !== tools.length) {
     sel.replaceChildren(h("option", { value: "" }, "All tools"), ...tools.map((t) => h("option", { value: t }, t)));
     sel.value = state.tool;
+  }
+  const agents = [...new Set(state.entries.map((e) => agentOf(e).name))].sort();
+  const agentSel = $("agent-filter");
+  agentSel.hidden = agents.length < 2 && !state.agent;
+  if (agentSel.options.length - 1 !== agents.length) {
+    agentSel.replaceChildren(h("option", { value: "" }, "All agents"), ...agents.map((a) => h("option", { value: a }, a)));
+    agentSel.value = state.agent;
   }
 }
 
@@ -767,14 +784,15 @@ function codeBlock(text) {
 const STEPS = {
   binary: { title: "Install blast-radius", text: "One program with no dependencies. Download a release, or build it with Go.", code: "go install github.com/sandeepkomal/blast-radius@latest" },
   hook: { title: "Connect it to Claude Code", text: "Adds a hook that checks every shell command before it runs. Add --project to protect one repository only.", code: "blast-radius install" },
+  agents: { title: "Connect your other AI agents", text: "Optional. Codex, Gemini CLI and GitHub Copilot CLI get the same checks and show up in this dashboard. Add --project to protect one repository only.", code: "blast-radius install --agent codex\nblast-radius install --agent gemini\nblast-radius install --agent copilot" },
   log: { title: "Turn on the activity log", text: "Writes a config with audit_log set, which feeds this dashboard. With an existing config, add the audit_log line instead.", code: 'blast-radius init --user\n# or add to your existing config:\n"audit_log": "~/.local/state/blast-radius/audit.jsonl"' },
-  paranoid: { title: "Add the paranoid-sre skill", text: "Makes Claude check where it is, preview and plan a way back before it runs anything, so fewer commands get this far.", code: "claude plugin marketplace add SandeepKomal/paranoid-sre\nclaude plugin install paranoid-sre@paranoid-sre" },
+  paranoid: { title: "Add the paranoid-sre skill", text: "Makes the agent check where it is, preview and plan a way back before it runs anything, so fewer commands get this far. Codex, Gemini CLI and Copilot CLI all read skills from ~/.agents/skills.", code: "# Claude Code\nclaude plugin marketplace add SandeepKomal/paranoid-sre\nclaude plugin install paranoid-sre@paranoid-sre\n\n# Codex, Gemini CLI, Copilot CLI\ngit clone https://github.com/SandeepKomal/paranoid-sre\nmkdir -p ~/.agents/skills && cp -r paranoid-sre/skills/paranoid ~/.agents/skills/" },
   restart: { title: "Check the setup, then restart Claude Code", text: "doctor tests the hook on this machine. Claude Code loads new hooks and plugins when it starts.", code: "blast-radius doctor" },
 };
 
 function renderSetup(st) {
   const steps = st.steps;
-  const countable = steps.filter((x) => !x.unknown);
+  const countable = steps.filter((x) => !x.unknown && !x.optional);
   const done = countable.filter((x) => x.done).length;
   const track = h("div", { class: "progress-track" }, h("span"));
   track.firstChild.style.width = (done / countable.length) * 100 + "%";
@@ -786,7 +804,8 @@ function renderSetup(st) {
   $("steps").replaceChildren(...steps.map((x, i) => {
     const d = STEPS[x.id];
     const label = x.unknown ? h("span", { class: "state unk" }, "Do this last")
-      : x.done ? h("span", { class: "state ok" }, "Done") : h("span", { class: "state todo" }, "To do");
+      : x.done ? h("span", { class: "state ok" }, "Done")
+      : x.optional ? h("span", { class: "state unk" }, "Optional") : h("span", { class: "state todo" }, "To do");
     return h("li", { class: "step" + (x.done ? " done" : ""), id: "step-" + x.id },
       h("div", { class: "step-num" }, h("span", {}, i + 1)),
       h("div", {}, h("div", { class: "step-top" }, h("h3", {}, d.title), label),
@@ -796,7 +815,7 @@ function renderSetup(st) {
   }));
 
   const byId = Object.fromEntries(steps.map((x) => [x.id, x]));
-  const health = [["Hook", byId.hook], ["Activity log", byId.log], ["paranoid-sre", byId.paranoid],
+  const health = [["Hook", byId.hook.done || !byId.agents ? byId.hook : byId.agents], ["Activity log", byId.log], ["paranoid-sre", byId.paranoid],
     ["Masking", { done: st.privacy.redact, detail: "Personal data and secrets are masked before they are written" }]];
   $("health").replaceChildren(...health.map(([name, x]) =>
     h("li", { title: x.detail || "" }, h("i", { class: "dot " + (x.done ? "on" : "off") }), name, h("span", {}, x.done ? "On" : "Off"))));
@@ -878,6 +897,7 @@ function renderAll() {
   renderTimeChart();
   renderMix(list.filter(risky));
   renderBreakdown($("by-env"), list.filter(risky), (e) => [envOf(e) || "unknown"], "No environments yet.");
+  renderBreakdown($("by-agent"), list.filter(risky), (e) => [agentOf(e).name], "No agents yet.");
   renderBreakdown($("by-tool"), list.filter(risky), toolsOf, "No tools yet.");
   renderAgents(list);
   renderCare(list);
@@ -953,6 +973,7 @@ async function start() {
   $("safe").checked = state.safe;
   $("safe").addEventListener("change", (e) => { state.safe = e.target.checked; save("safe", state.safe ? "1" : "0"); state.shown = PAGE; renderTable(); });
   $("tool-filter").addEventListener("change", (e) => { state.tool = e.target.value; renderTable(); });
+  $("agent-filter").addEventListener("change", (e) => { state.agent = e.target.value; renderTable(); });
   $("search").addEventListener("input", (e) => { state.query = e.target.value.trim(); state.shown = PAGE; renderTable(); });
   $("more").addEventListener("click", () => { state.shown += PAGE; renderTable(); });
   $("ts-toggle").addEventListener("click", () => {

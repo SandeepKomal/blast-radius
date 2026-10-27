@@ -115,6 +115,14 @@ jobs:
           chmod +x "$RUNNER_TEMP/terragrunt"
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+      - name: Install Codex CLI
+        # Pinned: the Codex tests check its hook protocol.
+        run: |
+          npm install --prefix "$RUNNER_TEMP/codex" --no-save --no-audit --no-fund @openai/codex@0.164.0
+          echo "BLAST_RADIUS_E2E_CODEX=$RUNNER_TEMP/codex/node_modules/.bin/codex" >> "$GITHUB_ENV"
       - name: Tool versions
         run: |
           terraform version
@@ -124,6 +132,7 @@ jobs:
           pulumi version
           gcloud version | head -1
           kubectl version --client
+          "$BLAST_RADIUS_E2E_CODEX" --version
       - name: End-to-end tests
         env:
           BLAST_RADIUS_E2E_KUBE: "1"
