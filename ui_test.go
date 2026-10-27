@@ -169,3 +169,32 @@ func TestRunningMarks(t *testing.T) {
 		t.Errorf("mark not cleared: %+v", r)
 	}
 }
+
+func TestParanoidInstalledForEveryAgent(t *testing.T) {
+	home := isolate(t)
+	dir := t.TempDir()
+	if got := paranoidInstalled(dir); got != "" {
+		t.Fatalf("found %q with nothing installed", got)
+	}
+	for _, skills := range []string{
+		filepath.Join(home, ".agents", "skills"),
+		filepath.Join(home, ".codex", "skills"),
+		filepath.Join(home, ".gemini", "skills"),
+		filepath.Join(home, ".copilot", "skills"),
+		filepath.Join(dir, ".github", "skills"),
+	} {
+		skill := filepath.Join(skills, "paranoid")
+		if err := os.MkdirAll(skill, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("---\nname: paranoid\n---\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := paranoidInstalled(dir); got != skill {
+			t.Errorf("paranoidInstalled = %q, want %q", got, skill)
+		}
+		if err := os.RemoveAll(skill); err != nil {
+			t.Fatal(err)
+		}
+	}
+}

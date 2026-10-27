@@ -4,9 +4,9 @@ Guidance for Claude (and other agents) working in this repository.
 
 ## What this is
 
-blast-radius is a Claude Code hook, written in Go, that previews what an
-infrastructure command would destroy and asks or blocks before the agent runs
-it. `blast-radius ui` is a local dashboard over its activity log. It pairs
+blast-radius is a hook for Claude Code, Codex, Gemini CLI and GitHub Copilot
+CLI, written in Go, that previews what an infrastructure command would destroy
+and asks or blocks before the agent runs it. `blast-radius ui` is a local dashboard over its activity log. It pairs
 with [paranoid-sre](https://github.com/SandeepKomal/paranoid-sre), a skill that
 makes the agent careful before it reaches the hook.
 
@@ -15,7 +15,8 @@ makes the agent careful before it reaches the hook.
 ```bash
 make test        # go test -race ./...
 make lint        # golangci-lint, including the e2e build tag
-make e2e         # needs terraform or tofu; kubectl tests need BLAST_RADIUS_E2E_KUBE=1
+make e2e         # needs terraform or tofu; kubectl tests need BLAST_RADIUS_E2E_KUBE=1,
+                 # Codex tests BLAST_RADIUS_E2E_CODEX=<path to codex>
 make fuzz        # fuzz the shell parser
 go build -o blast-radius . && ./blast-radius ui   # run the dashboard
 ```
@@ -30,6 +31,7 @@ on macOS and Windows: use `filepath`, `policy.UserConfigPath()` and the
 | --- | --- |
 | `main.go` | CLI entry, `evaluate()` (analyse a request and apply the policy) |
 | `hook.go` | `hook claude`: PreToolUse decisions; other events go to `record.go` |
+| `codex_hook.go`, `agent_hooks.go` | `hook codex`, `hook gemini`, `hook copilot`: the same decisions in each agent's wire format |
 | `record.go` | Recording-only hook events: sessions, prompts, results, skills |
 | `audit.go`, `auditcmd.go` | Writing the audit log; `audit prune / forget / export` |
 | `install.go`, `doctor.go` | Editing Claude Code settings; health checks and `init` templates |
@@ -44,7 +46,7 @@ on macOS and Windows: use `filepath`, `policy.UserConfigPath()` and the
 ## Rules that must not be broken
 
 - **Fail closed.** If something can't be checked, the answer is "ask", never
-  "pass". A crash, timeout, bad input or config error must not let a command
+  "pass" (a denial, for agents whose hooks can't ask). A crash, timeout, bad input or config error must not let a command
   through. Every new code path needs a test proving this.
 - **Previews are read-only.** Nothing blast-radius runs may change state or
   take locks.

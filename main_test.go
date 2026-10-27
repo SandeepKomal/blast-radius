@@ -39,6 +39,8 @@ func isolate(t *testing.T) string {
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("AppData", filepath.Join(home, "AppData"))
+	t.Setenv("CODEX_HOME", "")
+	t.Setenv("COPILOT_HOME", "")
 	return home
 }
 
@@ -214,10 +216,10 @@ func TestUpdateSettings(t *testing.T) {
 }`), 0o600)
 
 	entry := hookEntries("/usr/local/bin/blast-radius")
-	if status, err := updateSettings(path, entry); err != nil || status != "updated" {
+	if status, err := updateSettings(path, hookTargets["claude"], entry); err != nil || status != "updated" {
 		t.Fatalf("upgrade: %q %v", status, err)
 	}
-	if status, _ := updateSettings(path, entry); status != "unchanged" {
+	if status, _ := updateSettings(path, hookTargets["claude"], entry); status != "unchanged" {
 		t.Errorf("second install: %q", status)
 	}
 	b, _ := os.ReadFile(path)
@@ -243,14 +245,14 @@ func TestUpdateSettings(t *testing.T) {
 		t.Errorf("file mode changed to %v", st.Mode().Perm())
 	}
 
-	if status, err := updateSettings(path, nil); err != nil || status != "removed" {
+	if status, err := updateSettings(path, hookTargets["claude"], nil); err != nil || status != "removed" {
 		t.Fatalf("uninstall: %q %v", status, err)
 	}
 	m := readSettings(t, path)
 	if b, _ := json.Marshal(m); strings.Contains(string(b), "blast-radius") || !strings.Contains(string(b), "other-hook") {
 		t.Errorf("after uninstall: %s", b)
 	}
-	if status, _ := updateSettings(path, nil); status != "unchanged" {
+	if status, _ := updateSettings(path, hookTargets["claude"], nil); status != "unchanged" {
 		t.Errorf("second uninstall: %q", status)
 	}
 }
@@ -258,7 +260,7 @@ func TestUpdateSettings(t *testing.T) {
 func TestUpdateSettingsRejectsBrokenJSON(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "settings.json")
 	os.WriteFile(path, []byte(`{"hooks": `), 0o644)
-	if _, err := updateSettings(path, hookEntries("x")); err == nil {
+	if _, err := updateSettings(path, hookTargets["claude"], hookEntries("x")); err == nil {
 		t.Error("want error")
 	}
 	if b, _ := os.ReadFile(path); string(b) != `{"hooks": ` {
@@ -277,7 +279,7 @@ func TestDoctor(t *testing.T) {
 	exe := filepath.Join(home, "bin", "blast-radius")
 	os.MkdirAll(filepath.Dir(exe), 0o755)
 	os.WriteFile(exe, []byte("#!/bin/sh\n"), 0o755)
-	updateSettings(filepath.Join(home, ".claude", "settings.json"), hookEntries(exe))
+	updateSettings(filepath.Join(home, ".claude", "settings.json"), hookTargets["claude"], hookEntries(exe))
 	out.Reset()
 	if code := doctor(&out, planRunner("")); code != 0 {
 		t.Errorf("doctor with hook: %d\n%s", code, out.String())
@@ -286,7 +288,7 @@ func TestDoctor(t *testing.T) {
 		t.Errorf("output:\n%s", out.String())
 	}
 
-	updateSettings(filepath.Join(home, ".claude", "settings.json"), hookEntries(filepath.Join(home, "gone", "blast-radius")))
+	updateSettings(filepath.Join(home, ".claude", "settings.json"), hookTargets["claude"], hookEntries(filepath.Join(home, "gone", "blast-radius")))
 	out.Reset()
 	if code := doctor(&out, planRunner("")); code != 1 || !strings.Contains(out.String(), "does not exist") {
 		t.Errorf("doctor with missing binary: %d\n%s", code, out.String())

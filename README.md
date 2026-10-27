@@ -6,7 +6,7 @@
 [![CodeQL](https://github.com/SandeepKomal/blast-radius/actions/workflows/github-code-scanning/codeql/badge.svg)](https://github.com/SandeepKomal/blast-radius/actions/workflows/github-code-scanning/codeql)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/SandeepKomal/blast-radius/badge)](https://scorecard.dev/viewer/?uri=github.com/SandeepKomal/blast-radius)
 
-**See what your AI agent is about to destroy, before it does.** blast-radius is a Claude Code hook and a Codex PreToolUse adapter that previews what a `terraform apply`, `kubectl delete` or `helm uninstall` would delete,
+**See what your AI agent is about to destroy, before it does.** blast-radius is a hook for Claude Code, Codex, Gemini CLI and GitHub Copilot CLI that previews what a `terraform apply`, `kubectl delete` or `helm uninstall` would delete,
 asks you first, and blocks it in production. A local dashboard shows everything your agent
 ran, which agent and model ran it, for which task, and what happened.
 
@@ -144,51 +144,49 @@ This adds the hook to `~/.claude/settings.json` (all your projects). Use
 `.claude/settings.json`. If you installed an older version, run it again: it adds the hooks
 that record which agent ran a command and whether it ran.
 
-### Codex desktop app (experimental)
+### Using another AI agent: Codex, Gemini CLI, GitHub Copilot CLI
 
-Codex supports command hooks through `~/.codex/hooks.json` or a trusted repository's
-`.codex/hooks.json`. The adapter uses the same analyzer and policy engine as the Claude Code
-hook; it does not fork or replace the safety engine.
+The same checks, policy and dashboard work for these agents. Install the hook for each agent
+you use:
 
-1. Install the current blast-radius binary and confirm `blast-radius version` works from a terminal.
-2. Add the following event to your existing `~/.codex/hooks.json` (merge it into the existing
-   `hooks` object; do not overwrite your other hooks). Replace the command with the absolute path
-   to your installed binary if Codex's PATH does not include it:
-
-```json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "^Bash$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "blast-radius hook codex",
-            "timeout": 300,
-            "statusMessage": "Previewing infrastructure impact"
-          }
-        ]
-      }
-    ]
-  }
-}
+```bash
+blast-radius install --agent codex     # ~/.codex/hooks.json
+blast-radius install --agent gemini    # ~/.gemini/settings.json
+blast-radius install --agent copilot   # ~/.copilot/hooks/blast-radius.json
 ```
 
-3. Restart Codex desktop, review and trust the hook when Codex prompts you, then test in a
-   disposable repository with `blast-radius check` before allowing the agent to run infrastructure
-   changes.
+Add `--project` to protect one repository instead (`.codex/hooks.json`,
+`.gemini/settings.json` or `.github/hooks/blast-radius.json`), and use `uninstall` with the
+same flags to remove it. Each hook checks shell commands and file edits, and the dashboard shows
+which agent ran each command.
 
-**Important difference from Claude Code:** Codex's `PreToolUse` hook does not support an
-interactive `ask` decision yet. Therefore, when blast-radius policy returns `ask`, the Codex
-adapter denies the tool call and explains how to review it manually. Policy `deny` also denies;
-policy `pass` emits no decision and lets Codex continue. Malformed hook input and internal errors
-are blocked for safety.
+| | Codex | Gemini CLI | GitHub Copilot CLI |
+| --- | --- | --- | --- |
+| Tested with | 0.164.0 | 0.65.0 | 1.0.104 |
+| Checks | `Bash`, `apply_patch` | `run_shell_command`, `write_file`, `replace` | `bash`/`powershell`, `edit`, `create` |
+| When a command needs approval | Blocked: Codex hooks can't ask | Blocked: Gemini CLI hooks can't ask | Copilot asks you; blocked in `-p`, autopilot and the cloud agent |
+| Records for the dashboard | Commands, model, sessions, requests, results | Commands, sessions | Commands, sessions, subagents |
+| If the hook can't run | Codex runs the command | Gemini CLI runs the command | Copilot blocks the command |
 
-This initial adapter covers Codex `Bash` commands only. It does not yet intercept file-edit tools,
-and it does not provide an automatic Codex installer/uninstaller. The existing
-`blast-radius install` and `blast-radius uninstall` commands remain Claude Code-specific and are
-unchanged. Codex's hook system is a useful guardrail, not a complete enforcement boundary.
+**Codex: trust the hooks.** Codex doesn't run a hook until you trust it. After installing,
+start Codex, open `/hooks` and trust the blast-radius hooks. Codex asks again whenever the hook
+changes, for example after `blast-radius install` moves it to a new binary. An untrusted hook is
+skipped without any warning, and commands run unchecked.
+
+Codex and Gemini CLI let a command run when the hook can't start, so `install` writes the full
+path of the binary rather than relying on the agent's `PATH`. After moving the binary, run
+`install` again. `blast-radius doctor` checks that each agent's hook points at a binary that
+exists. Previews are capped well inside the hook timeout, so a slow preview ends in a decision
+and never in a timeout.
+
+**Any other agent.** If an agent can run a command before each tool call, have it call
+`blast-radius check --agent NAME`. It exits 0 when the command can run, 10 when it needs
+approval and 20 when it is blocked, and the command appears in the dashboard under that
+agent's name:
+
+```bash
+blast-radius check --agent aider --session "$SESSION_ID" -C "$PWD" "$COMMAND"
+```
 
 ### 3. Turn on the activity log
 
@@ -210,6 +208,13 @@ masked and entries kept for 90 days. The dashboard reads this log. Already have 
 ```bash
 claude plugin marketplace add SandeepKomal/paranoid-sre
 claude plugin install paranoid-sre@paranoid-sre
+```
+
+Codex, Gemini CLI and GitHub Copilot CLI all read skills from `~/.agents/skills`:
+
+```bash
+git clone https://github.com/SandeepKomal/paranoid-sre
+mkdir -p ~/.agents/skills && cp -r paranoid-sre/skills/paranoid ~/.agents/skills/
 ```
 
 ### 5. Check everything, then restart Claude Code
@@ -365,14 +370,14 @@ organisation does, plus a notice you can give your team.
 
 | Command | What it does |
 | --- | --- |
-| `blast-radius install [--project]` | Add the hooks to Claude Code |
-| `blast-radius uninstall [--project]` | Remove Claude Code hooks |
-| `blast-radius hook codex` | Run as a Codex desktop PreToolUse hook (configure manually) |
+| `blast-radius install [--agent claude\|codex\|gemini\|copilot] [--project]` | Add the hooks to an agent (default Claude Code) |
+| `blast-radius uninstall [--agent ...] [--project]` | Remove them |
 | `blast-radius doctor` | Check the hook, config and tools, and run a self-test |
 | `blast-radius init [--user]` | Write a starter config (a repository's, or yours) |
 | `blast-radius config` | Print the policy in effect here |
 | `blast-radius ui [--addr host:port]` | Open the dashboard |
 | `blast-radius check [-C dir] [--json] '<command>'` | Preview a command yourself |
+| `blast-radius check --agent NAME [--session ID] '<command>'` | Check and record a command for an agent without a built-in hook |
 | `blast-radius audit prune [--older-than 30d]` | Delete old activity log entries |
 | `blast-radius audit export --match TEXT \| --session ID` | Print matching entries (access requests) |
 | `blast-radius audit forget --match TEXT \| --session ID` | Delete matching entries (erasure requests) |
@@ -422,7 +427,7 @@ Keep using least-privilege credentials for anything that matters.
 
 ## Roadmap
 
-- Hooks for Codex, Cursor, Gemini CLI and OpenCode
+- Hooks for Cursor, Windsurf, Cline and OpenCode (until then, `blast-radius check --agent`)
 - Previews for `helm upgrade` (via `helm diff`) and `pulumi up` (via `pulumi preview`)
 - SQL `DROP`/`TRUNCATE` and `docker system prune`
 - A shareable HTML report of what depends on each deleted resource

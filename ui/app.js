@@ -784,14 +784,15 @@ function codeBlock(text) {
 const STEPS = {
   binary: { title: "Install blast-radius", text: "One program with no dependencies. Download a release, or build it with Go.", code: "go install github.com/sandeepkomal/blast-radius@latest" },
   hook: { title: "Connect it to Claude Code", text: "Adds a hook that checks every shell command before it runs. Add --project to protect one repository only.", code: "blast-radius install" },
+  agents: { title: "Connect your other AI agents", text: "Optional. Codex, Gemini CLI and GitHub Copilot CLI get the same checks and show up in this dashboard. Add --project to protect one repository only.", code: "blast-radius install --agent codex\nblast-radius install --agent gemini\nblast-radius install --agent copilot" },
   log: { title: "Turn on the activity log", text: "Writes a config with audit_log set, which feeds this dashboard. With an existing config, add the audit_log line instead.", code: 'blast-radius init --user\n# or add to your existing config:\n"audit_log": "~/.local/state/blast-radius/audit.jsonl"' },
-  paranoid: { title: "Add the paranoid-sre skill", text: "Makes Claude check where it is, preview and plan a way back before it runs anything, so fewer commands get this far.", code: "claude plugin marketplace add SandeepKomal/paranoid-sre\nclaude plugin install paranoid-sre@paranoid-sre" },
+  paranoid: { title: "Add the paranoid-sre skill", text: "Makes the agent check where it is, preview and plan a way back before it runs anything, so fewer commands get this far. Codex, Gemini CLI and Copilot CLI all read skills from ~/.agents/skills.", code: "# Claude Code\nclaude plugin marketplace add SandeepKomal/paranoid-sre\nclaude plugin install paranoid-sre@paranoid-sre\n\n# Codex, Gemini CLI, Copilot CLI\ngit clone https://github.com/SandeepKomal/paranoid-sre\nmkdir -p ~/.agents/skills && cp -r paranoid-sre/skills/paranoid ~/.agents/skills/" },
   restart: { title: "Check the setup, then restart Claude Code", text: "doctor tests the hook on this machine. Claude Code loads new hooks and plugins when it starts.", code: "blast-radius doctor" },
 };
 
 function renderSetup(st) {
   const steps = st.steps;
-  const countable = steps.filter((x) => !x.unknown);
+  const countable = steps.filter((x) => !x.unknown && !x.optional);
   const done = countable.filter((x) => x.done).length;
   const track = h("div", { class: "progress-track" }, h("span"));
   track.firstChild.style.width = (done / countable.length) * 100 + "%";
@@ -803,7 +804,8 @@ function renderSetup(st) {
   $("steps").replaceChildren(...steps.map((x, i) => {
     const d = STEPS[x.id];
     const label = x.unknown ? h("span", { class: "state unk" }, "Do this last")
-      : x.done ? h("span", { class: "state ok" }, "Done") : h("span", { class: "state todo" }, "To do");
+      : x.done ? h("span", { class: "state ok" }, "Done")
+      : x.optional ? h("span", { class: "state unk" }, "Optional") : h("span", { class: "state todo" }, "To do");
     return h("li", { class: "step" + (x.done ? " done" : ""), id: "step-" + x.id },
       h("div", { class: "step-num" }, h("span", {}, i + 1)),
       h("div", {}, h("div", { class: "step-top" }, h("h3", {}, d.title), label),
@@ -813,7 +815,7 @@ function renderSetup(st) {
   }));
 
   const byId = Object.fromEntries(steps.map((x) => [x.id, x]));
-  const health = [["Hook", byId.hook], ["Activity log", byId.log], ["paranoid-sre", byId.paranoid],
+  const health = [["Hook", byId.hook.done || !byId.agents ? byId.hook : byId.agents], ["Activity log", byId.log], ["paranoid-sre", byId.paranoid],
     ["Masking", { done: st.privacy.redact, detail: "Personal data and secrets are masked before they are written" }]];
   $("health").replaceChildren(...health.map(([name, x]) =>
     h("li", { title: x.detail || "" }, h("i", { class: "dot " + (x.done ? "on" : "off") }), name, h("span", {}, x.done ? "On" : "Off"))));
