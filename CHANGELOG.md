@@ -37,6 +37,10 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
+- The browser tests and the Codex CLI used by the end-to-end tests are
+  installed with `npm ci` from committed lockfiles, so they are pinned by
+  hash, and Dependabot updates them (OpenSSF Scorecard Pinned-Dependencies).
+
 - Self-protection covers every supported agent: commands and file edits
   that change Codex, Gemini CLI or Copilot hook settings need approval.
 - Self-protection could be bypassed with a path written differently:

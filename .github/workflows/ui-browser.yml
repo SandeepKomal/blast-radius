@@ -29,7 +29,8 @@ jobs:
           node-version: "22"
       - name: Install browser test dependencies
         run: |
-          npm install --no-audit --no-fund
+          # npm ci installs exactly what package-lock.json records, hashes included.
+          npm ci --no-audit --no-fund
           npx playwright install --with-deps chromium
       - name: Run dashboard browser tests
         run: npm run test:ui
