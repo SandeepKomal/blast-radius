@@ -36,8 +36,8 @@ const usage = `blast-radius shows what an infrastructure command would break bef
 Usage:
   blast-radius install [--project]   add the Claude Code hook (user settings, or .claude/settings.json)
   blast-radius uninstall [--project] remove the Claude Code hook
-  blast-radius check [-C dir] [--json] [--shell bash|powershell] <command>
-                                     preview a command yourself
+  blast-radius check [-C dir] [--json] [--shell bash|powershell] [--agent name] <command>
+                                     preview a command yourself, or from any agent's hook
   blast-radius doctor                check that the hook, config and tools are set up correctly
   blast-radius init [--user]         write a starter .blast-radius.json (or your user config)
   blast-radius config                print the policy in effect for this directory
@@ -115,6 +115,7 @@ type request struct {
 	editPath string
 	dir      string
 	agent    agentInfo // who asked, when the request comes from a hook
+	model    string    // the agent's model, when its hook says
 }
 
 // evaluate analyzes a request and applies the policy for its directory.
@@ -147,12 +148,33 @@ func evaluate(req request, run analyze.Runner, stderr io.Writer) ([]analyze.Find
 		}
 	}
 	action := policy.Strictest(verdicts)
-	if cfg.AuditLog != "" && !selfTesting && (len(findings) > 0 || cfg.AuditAll && req.agent.ToolUseID != "" && req.script != "") {
+	if cfg.AuditLog != "" && !selfTesting && (len(findings) > 0 || cfg.AuditAll && fromAgent(req) && req.script != "") {
 		if err := writeAudit(cfg.AuditLog, cfg.Redact(), req, findings, verdicts, action); err != nil {
 			fmt.Fprintf(stderr, "blast-radius: audit log: %v\n", err)
 		}
 	}
 	return findings, verdicts, action
+}
+
+// fromAgent reports whether an agent sent the request (through a hook or
+// `check --agent`), rather than a person running `check` by hand.
+func fromAgent(req request) bool {
+	return req.agent.ToolUseID != "" || req.agent.AgentPlatform != ""
+}
+
+// agentName turns `check --agent` into the name the dashboard shows:
+// lower case, at most 40 letters, digits, '-', '_' or '.'.
+func agentName(s string) (string, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" || len(s) > 40 {
+		return "", false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.') {
+			return "", false
+		}
+	}
+	return s, true
 }
 
 func check(args []string, stdout, stderr io.Writer, run analyze.Runner) int {
@@ -161,17 +183,31 @@ func check(args []string, stdout, stderr io.Writer, run analyze.Runner) int {
 	dir := fs.String("C", "", "directory the command runs in (default: current directory)")
 	asJSON := fs.Bool("json", false, "print findings as JSON")
 	shellName := fs.String("shell", "bash", "how to parse the command: bash or powershell")
+	agent := fs.String("agent", "", "record the command as run by this AI agent (for agents without a built-in hook)")
+	session := fs.String("session", "", "with --agent: the agent's session or conversation ID")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if fs.NArg() == 0 {
-		fmt.Fprintln(stderr, "usage: blast-radius check [-C dir] [--json] [--shell bash|powershell] <command>")
+		fmt.Fprintln(stderr, "usage: blast-radius check [-C dir] [--json] [--shell bash|powershell] [--agent name] <command>")
 		return 2
 	}
 	if *dir == "" {
 		*dir, _ = os.Getwd()
 	}
 	req := request{tool: "check", script: strings.Join(fs.Args(), " "), dir: *dir}
+	if *agent != "" {
+		name, ok := agentName(*agent)
+		if !ok {
+			fmt.Fprintf(stderr, "invalid --agent %q: use letters, digits, '-', '_' or '.' (at most 40)\n", *agent)
+			return 2
+		}
+		req.tool = "Bash"
+		if *shellName == "powershell" || *shellName == "pwsh" {
+			req.tool = "PowerShell"
+		}
+		req.agent = agentInfo{AgentPlatform: name, SessionID: truncate(*session)}
+	}
 	switch *shellName {
 	case "bash":
 	case "powershell", "pwsh":

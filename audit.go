@@ -20,6 +20,9 @@ type auditEntry struct {
 	Command  string         `json:"command"`
 	Action   policy.Action  `json:"action"`
 	Findings []auditFinding `json:"findings"`
+	// Model is set by agents whose pre-command hook names the model (Codex,
+	// Cursor); Claude Code reports it once per session instead.
+	Model string `json:"model,omitempty"`
 	agentInfo
 }
 
@@ -51,7 +54,7 @@ func writeAudit(path string, mask bool, req request, findings []analyze.Finding,
 	if err != nil {
 		return err
 	}
-	e := auditEntry{Time: time.Now().UTC(), Tool: req.tool, Dir: req.dir, Command: req.script, Action: action, Findings: []auditFinding{}, agentInfo: req.agent}
+	e := auditEntry{Time: time.Now().UTC(), Tool: req.tool, Dir: req.dir, Command: req.script, Action: action, Findings: []auditFinding{}, Model: truncate(req.model), agentInfo: req.agent}
 	if req.editPath != "" {
 		e.Command = "edit " + req.editPath
 	}

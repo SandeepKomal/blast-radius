@@ -48,15 +48,34 @@ func writeCodexDecision(w io.Writer, reason string) int {
 // hookCodex evaluates Codex Bash commands with the same analyzer and policy
 // engine as hookClaude. Unsupported events/tools are ignored. Malformed input
 // and non-pass decisions never silently allow a command.
+//
+// Codex's SessionStart, UserPromptSubmit and PostToolUse events are only
+// recorded for the dashboard, like Claude Code's (see record.go).
 func hookCodex(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (code int) {
 	var in codexHookInput
 	defer func() {
 		if recovered := recover(); recovered != nil {
+			if recorded(in.HookEventName) {
+				code = 0
+				return
+			}
 			code = writeCodexDecision(stdout, "blast-radius encountered an internal error while checking this command; blocked for safety. Review it manually before running it.")
 		}
 	}()
-	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
+	raw, err := io.ReadAll(stdin)
+	if err == nil {
+		err = json.Unmarshal(raw, &in)
+	}
+	if err != nil {
 		return writeCodexDecision(stdout, "blast-radius could not read Codex hook input; command blocked for safety.")
+	}
+	if recorded(in.HookEventName) {
+		var rec hookInput
+		if json.Unmarshal(raw, &rec) == nil {
+			rec.AgentPlatform = "codex"
+			recordEvent(rec, stderr)
+		}
+		return 0
 	}
 	if in.HookEventName != "PreToolUse" || in.ToolName != "Bash" {
 		return 0
@@ -71,6 +90,7 @@ func hookCodex(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (c
 	req := request{
 		tool: "Bash", script: in.ToolInput.Command, dir: dir,
 		agent: agentInfo{ToolUseID: in.ToolUseID, SessionID: in.SessionID, AgentPlatform: "codex"},
+		model: in.Model,
 	}
 	findings, verdicts, action := evaluate(req, run, stderr)
 	if action == policy.Pass {

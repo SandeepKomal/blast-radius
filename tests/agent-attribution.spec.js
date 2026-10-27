@@ -15,6 +15,8 @@ test.beforeAll(async () => {
   const entries = [
     ["claude_code", "terraform destroy claude"],
     ["codex", "terraform destroy codex"],
+    ["gemini_cli", "terraform destroy gemini"],
+    ["my-agent", "terraform destroy custom"],
     [undefined, "terraform destroy legacy"],
   ].map(([platform, command], index) => ({
     time: new Date(now - index * 1000).toISOString(),
@@ -52,11 +54,24 @@ test.afterAll(async () => {
   if (tempDir) await rm(tempDir, { recursive: true, force: true });
 });
 
-test("activity table labels Claude Code, Codex, and legacy records correctly", async ({ page }) => {
+test("activity table labels every agent, and legacy records, correctly", async ({ page }) => {
   await page.goto(baseURL + "/#activity");
   const agents = page.locator("#rows tr td.agent");
-  await expect(agents).toHaveCount(3);
+  await expect(agents).toHaveCount(5);
+  await expect(page.locator("#rows tr").filter({ hasText: "terraform destroy gemini" }).locator("td.agent")).toHaveText("Gemini CLI");
+  await expect(page.locator("#rows tr").filter({ hasText: "terraform destroy custom" }).locator("td.agent")).toHaveText("my-agent");
   await expect(page.locator("#rows tr").filter({ hasText: "terraform destroy claude" }).locator("td.agent")).toHaveText("Claude Code");
   await expect(page.locator("#rows tr").filter({ hasText: "terraform destroy codex" }).locator("td.agent")).toHaveText("Codex");
   await expect(page.locator("#rows tr").filter({ hasText: "terraform destroy legacy" }).locator("td.agent")).toHaveText("Legacy / Unknown");
+});
+
+test("agent filter and breakdown list every agent", async ({ page }) => {
+  await page.goto(baseURL + "/#overview");
+  for (const name of ["Claude Code", "Codex", "Gemini CLI", "my-agent"]) {
+    await expect(page.locator("#by-agent")).toContainText(name);
+  }
+  await page.goto(baseURL + "/#activity");
+  await page.locator("#agent-filter").selectOption("Codex");
+  await expect(page.locator("#rows tr td.agent")).toHaveCount(1);
+  await expect(page.locator("#rows tr td.agent")).toHaveText("Codex");
 });
