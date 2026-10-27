@@ -328,6 +328,9 @@ function renderKPIs() {
 
 const RADAR_RING = { deny: 32, ask: 56, pass: 80 };
 
+// polar turns a radius and an angle (clockwise from the top) into a point.
+const polar = (r, a) => ({ x: r * Math.sin(a), y: -r * Math.cos(a) });
+
 // spread gives each command a stable offset in [-1, 1), so blips that land
 // on the same spot don't hide each other.
 function spread(str) {
@@ -339,12 +342,12 @@ function spread(str) {
 function renderRadar(list) {
   const bs = buckets(state.range), from = bs[0].start, to = bs[bs.length - 1].end;
   const svg = s("svg", { viewBox: "-100 -100 200 200", class: "radar-svg" });
-  for (const r of [RADAR_RING.deny, RADAR_RING.ask, RADAR_RING.pass]) svg.append(s("circle", { r, class: "radar-ring" }));
+  for (const r of Object.values(RADAR_RING)) svg.append(s("circle", { r, class: "radar-ring" }));
   svg.append(s("circle", { r: 94, class: "radar-edge" }));
   for (let i = 0; i < bs.length; i++) {
     const a = (2 * Math.PI * i) / bs.length, major = i % (bs.length > 12 ? 6 : 1) === 0;
-    const r0 = major ? 89 : 91.5;
-    svg.append(s("line", { x1: r0 * Math.sin(a), y1: -r0 * Math.cos(a), x2: 94 * Math.sin(a), y2: -94 * Math.cos(a), class: major ? "radar-tick major" : "radar-tick" }));
+    const p = polar(major ? 89 : 91.5, a), q = polar(94, a);
+    svg.append(s("line", { x1: p.x, y1: p.y, x2: q.x, y2: q.y, class: major ? "radar-tick major" : "radar-tick" }));
   }
   svg.append(s("line", { x1: 0, y1: -94, x2: 0, y2: 94, class: "radar-axis" }), s("line", { x1: -94, y1: 0, x2: 94, y2: 0, class: "radar-axis" }));
   svg.append(s("text", { x: 0, y: -97, class: "radar-label" }, "Now"));
@@ -356,9 +359,8 @@ function renderRadar(list) {
     const t = new Date(e.time).getTime();
     const a = (2 * Math.PI * (t - from)) / (to - from) + spread(e.command) * 0.04;
     const r = RADAR_RING[e.action] + spread(key(e)) * 8;
-    const x = r * Math.sin(a), y = -r * Math.cos(a), size = 0.5 + Math.min(lost(e), 8) * 0.06;
-    const label = OUT[e.action].label + ": " + e.command;
-    const g = s("g", { class: "blip b-" + e.action, tabindex: 0, role: "button", "aria-label": label + ", " + ago(e.time),
+    const { x, y } = polar(r, a), size = 0.5 + Math.min(lost(e), 8) * 0.06;
+    const g = s("g", { class: "blip b-" + e.action, tabindex: 0, role: "button", "aria-label": `${OUT[e.action].label}: ${e.command}, ${ago(e.time)}`,
       transform: `translate(${x.toFixed(2)} ${y.toFixed(2)})`,
       onclick: () => openDrawer(e),
       onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openDrawer(e); } },
@@ -378,38 +380,40 @@ function renderRadar(list) {
 // Status: what needs you, in plain words, next to the radar.
 
 let pickFilter = () => {};
+const goto = (view) => { location.hash = view; };
+const showActivity = (filter) => { goto("activity"); pickFilter(filter); };
+const waitingEntries = () => state.entries.filter((e) => e.action === "ask" && (nextOf(e) || {}).id === "waiting");
 
 function renderStatus(list) {
-  const risky = list.filter((e) => e.findings && e.findings.length);
-  const waiting = state.entries.filter((e) => e.action === "ask" && (nextOf(e) || {}).id === "waiting");
-  const blocked = risky.filter((e) => e.action === "deny");
+  const flagged = list.filter(risky);
+  const waiting = waitingEntries();
+  const blocked = flagged.filter((e) => e.action === "deny");
   const kept = blocked.reduce((n, e) => n + lost(e), 0);
   const period = "the " + RANGES[state.range].label;
   const plural = (n, one, many) => fmt.format(n) + " " + (n === 1 ? one : many);
   const go = (label, onclick, primary) => h("button", { type: "button", class: primary ? "btn" : "ghost", onclick }, label);
-  const showActivity = (f) => () => { location.hash = "activity"; pickFilter(f); };
 
   let tone, kicker, word, text, actions;
   if (state.status && !state.status.log_enabled) {
     [tone, kicker, word] = ["ask", "Not recording", "Recording off"];
     text = "blast-radius still checks every command, but this dashboard only shows what the activity log records.";
-    actions = [go("Turn on the activity log", () => { location.hash = "setup"; }, true)];
+    actions = [go("Turn on the activity log", () => goto("setup"), true)];
   } else if (waiting.length) {
     [tone, kicker, word] = ["ask", "Your agent is waiting", "Action needed"];
     text = plural(waiting.length, "command needs", "commands need") + " your answer in the agent. Check what " + (waiting.length === 1 ? "it" : "each") + " would delete before you approve.";
-    actions = [go("Review " + (waiting.length === 1 ? "it" : "the oldest"), () => openDrawer(waiting[waiting.length - 1]), true), go("Everything asked", showActivity("ask"))];
+    actions = [go("Review " + (waiting.length === 1 ? "it" : "the oldest"), () => openDrawer(waiting[waiting.length - 1]), true), go("Everything asked", () => showActivity("ask"))];
   } else if (blocked.length) {
     [tone, kicker, word] = ["deny", "Protected", "Shields up"];
     text = "blast-radius stopped " + plural(blocked.length, "command", "commands") + " in " + period + (kept ? ", which would have deleted " + plural(kept, "resource", "resources") : "") + ".";
-    actions = [go("See what was blocked", showActivity("deny"), true)];
-  } else if (risky.length) {
+    actions = [go("See what was blocked", () => showActivity("deny"), true)];
+  } else if (flagged.length) {
     [tone, kicker, word] = ["pass", "Watching", "All clear"];
-    text = plural(risky.length, "risky command", "risky commands") + " in " + period + ", none blocked. Each one was allowed by your rules or approved by you.";
-    actions = [go("Open activity", showActivity("all"), true)];
+    text = plural(flagged.length, "risky command", "risky commands") + " in " + period + ", none blocked. Each one was allowed by your rules or approved by you.";
+    actions = [go("Open activity", () => showActivity("all"), true)];
   } else {
     [tone, kicker, word] = ["idle", "Watching", "Standing by"];
     text = "No risky commands in " + period + ". Every shell command your agents run is checked before it runs.";
-    actions = state.entries.length ? [] : [go("Finish setup", () => { location.hash = "setup"; }, true)];
+    actions = state.entries.length ? [] : [go("Finish setup", () => goto("setup"), true)];
   }
   $("status").dataset.tone = tone;
   $("status-kicker").textContent = kicker;
@@ -418,7 +422,7 @@ function renderStatus(list) {
   $("status-actions").replaceChildren(...actions);
 
   const agents = [...new Set(list.filter((e) => e.tool !== "check").map((e) => agentOf(e).name))];
-  const envs = new Set(risky.map(envOf).filter(Boolean));
+  const envs = new Set(flagged.map(envOf).filter(Boolean));
   const last = state.entries[0];
   const stat = (label, value, title) => [h("dt", {}, label), h("dd", { title: title || "" }, value)];
   $("status-grid").replaceChildren(
@@ -433,12 +437,9 @@ function renderStatus(list) {
 const palette = { items: [], active: 0, opener: null };
 
 function paletteItems(q) {
-  const pages = Object.entries(VIEWS).map(([id, [title, sub]]) => ({ kind: "Page", title, sub, run: () => { location.hash = id; } }));
-  const actions = [
-    { kind: "Show", title: "Blocked commands", run: () => { location.hash = "activity"; pickFilter("deny"); } },
-    { kind: "Show", title: "Commands that asked you", run: () => { location.hash = "activity"; pickFilter("ask"); } },
-    { kind: "Show", title: "Allowed commands", run: () => { location.hash = "activity"; pickFilter("pass"); } },
-  ];
+  const pages = Object.entries(VIEWS).map(([id, [title, sub]]) => ({ kind: "Page", title, sub, run: () => goto(id) }));
+  const actions = [["deny", "Blocked commands"], ["ask", "Commands that asked you"], ["pass", "Allowed commands"]]
+    .map(([filter, title]) => ({ kind: "Show", title, run: () => showActivity(filter) }));
   const needle = q.toLowerCase();
   const match = (...xs) => !needle || xs.some((x) => (x || "").toLowerCase().includes(needle));
   const cmds = state.entries.filter((e) => match(e.command, e.dir, envOf(e), agentLabel(e))).slice(0, needle ? 12 : 5)
@@ -768,7 +769,7 @@ function renderBreakdown(el, list, by, emptyText) {
 
 function renderRunning() {
   const r = state.running;
-  const waiting = state.entries.filter((e) => e.action === "ask" && (nextOf(e) || {}).id === "waiting");
+  const waiting = waitingEntries();
   const n = r.length + waiting.length;
   $("run-badge").textContent = n;
   $("run-badge").classList.toggle("active", n > 0);
