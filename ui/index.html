@@ -44,6 +44,10 @@
         <p id="subtitle">What your agent tried to run, and what blast-radius did about it.</p>
       </div>
       <div class="top-actions">
+        <button class="palette-btn" id="palette-open" type="button" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">
+          <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/></svg>
+          <span>Search or jump to…</span><kbd id="palette-kbd">Ctrl K</kbd>
+        </button>
         <div class="segmented" id="range" role="radiogroup" aria-label="Time range">
           <button role="radio" aria-checked="true" data-range="24h">24h</button>
           <button role="radio" aria-checked="false" data-range="7d">7 days</button>
@@ -61,6 +65,25 @@
 
     <!-- Overview -->
     <section class="view" id="view-overview">
+      <article class="card hero">
+        <div class="radar-wrap">
+          <div class="radar" id="radar"></div>
+          <div class="sweep" aria-hidden="true"></div>
+        </div>
+        <div class="status" id="status" data-tone="idle">
+          <p class="hud" id="status-kicker">Status</p>
+          <h2 class="status-word" id="status-word">Standing by</h2>
+          <p class="status-text" id="status-text"></p>
+          <div class="status-actions" id="status-actions"></div>
+          <dl class="status-grid" id="status-grid"></dl>
+          <ul class="radar-key" aria-label="Radar key">
+            <li><svg viewBox="0 0 16 16" width="12" height="12" class="f-deny" aria-hidden="true"><path d="M6 1h4l5 5v4l-5 5H6l-5-5V6z"/></svg>Inner ring: blocked</li>
+            <li><svg viewBox="0 0 16 16" width="12" height="12" class="f-ask" aria-hidden="true"><path d="M8 1l7 7-7 7-7-7z"/></svg>Middle: asked you</li>
+            <li><svg viewBox="0 0 16 16" width="12" height="12" class="f-pass" aria-hidden="true"><path d="M8 1a7 7 0 1 1 0 14A7 7 0 0 1 8 1z"/></svg>Outer: allowed</li>
+          </ul>
+        </div>
+      </article>
+
       <div class="kpis" id="kpis"></div>
 
       <div class="grid g-3-1">
@@ -240,5 +263,15 @@ blast-radius check terraform destroy   # blocked</pre>
 </aside>
 <div class="scrim" id="scrim" hidden></div>
 <div class="tooltip" id="tooltip" role="status" hidden></div>
+<div class="palette" id="palette" hidden>
+  <div class="palette-box" role="dialog" aria-modal="true" aria-label="Search and jump">
+    <div class="palette-input">
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/></svg>
+      <input id="palette-q" type="text" role="combobox" aria-expanded="true" aria-controls="palette-list" aria-autocomplete="list" autocomplete="off" spellcheck="false" placeholder="Search commands, agents and environments, or jump to a page">
+    </div>
+    <ul class="palette-list" id="palette-list" role="listbox" aria-label="Results"></ul>
+    <p class="palette-foot hud"><span>↑ ↓ move</span><span>Enter open</span><span>Esc close</span></p>
+  </div>
+</div>
 </body>
 </html>
