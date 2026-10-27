@@ -119,10 +119,11 @@ jobs:
         with:
           node-version: "22"
       - name: Install Codex CLI
-        # Pinned: the Codex tests check its hook protocol.
+        # The Codex tests check its hook protocol. npm ci installs exactly
+        # what .github/tools/codex/package-lock.json records, hashes included.
         run: |
-          npm install --prefix "$RUNNER_TEMP/codex" --no-save --no-audit --no-fund @openai/codex@0.164.0
-          echo "BLAST_RADIUS_E2E_CODEX=$RUNNER_TEMP/codex/node_modules/.bin/codex" >> "$GITHUB_ENV"
+          npm ci --prefix .github/tools/codex --no-audit --no-fund
+          echo "BLAST_RADIUS_E2E_CODEX=$GITHUB_WORKSPACE/.github/tools/codex/node_modules/.bin/codex" >> "$GITHUB_ENV"
       - name: Tool versions
         run: |
           terraform version
