@@ -6,6 +6,17 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- A new look for the dashboard: glass panels over a plotting grid, in dark
+  and light. The Overview opens with a radar of every risky command (blocked
+  in the inner ring, asked in the middle, allowed outside; the angle is when
+  it ran; select a blip for details) and a plain-words status (Action needed,
+  Shields up, All clear) with the next step to take.
+- <kbd>Ctrl</kbd>+<kbd>K</kbd>, <kbd>⌘</kbd>+<kbd>K</kbd> or <kbd>/</kbd>
+  opens a palette to jump to a page or find any command.
+- README screenshots refreshed.
+
 ### Added
 
 - The dashboard shows every AI agent under its own name, not only Claude

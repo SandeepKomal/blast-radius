@@ -78,3 +78,25 @@ test("agent filter and breakdown list every agent", async ({ page }) => {
   await expect(page.locator("#rows tr td.agent")).toHaveCount(1);
   await expect(page.locator("#rows tr td.agent")).toHaveText("Codex");
 });
+
+test("radar plots every risky command and opens its details", async ({ page }) => {
+  await page.goto(baseURL + "/#overview");
+  const blips = page.locator("#radar .blip");
+  await expect(blips).toHaveCount(5);
+  await expect(page.locator("#status-word")).toHaveText("All clear");
+  await page.locator("#radar .blip").first().focus();
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#drawer")).toHaveClass(/open/);
+});
+
+test("command palette finds a command and opens it", async ({ page }) => {
+  await page.goto(baseURL + "/#overview");
+  await page.keyboard.press("Control+k");
+  await expect(page.locator("#palette")).toBeVisible();
+  await page.locator("#palette-q").fill("destroy codex");
+  await expect(page.locator("#palette-list .palette-item")).toHaveCount(1);
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#palette")).toBeHidden();
+  await expect(page.locator("#drawer")).toHaveClass(/open/);
+  await expect(page.locator("#drawer-body")).toContainText("terraform destroy codex");
+});
