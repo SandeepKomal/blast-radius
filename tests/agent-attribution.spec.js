@@ -29,9 +29,12 @@ test.beforeAll(async () => {
   }));
   await writeFile(logPath, entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
 
+  // In its own process group, so stopping it also stops the binary go run
+  // starts; a leftover server would answer the next run with stale data.
   server = spawn("go", ["run", ".", "ui", "--addr", "127.0.0.1:17357", "--log", logPath], {
     cwd: process.cwd(),
     stdio: "ignore",
+    detached: true,
   });
   const deadline = Date.now() + 60_000;
   while (Date.now() < deadline) {
@@ -49,7 +52,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   if (server && server.exitCode === null) {
-    server.kill("SIGTERM");
+    process.kill(-server.pid, "SIGTERM");
   }
   if (tempDir) await rm(tempDir, { recursive: true, force: true });
 });
