@@ -8,8 +8,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Changed
 
-- A new look for the dashboard: glass panels over a plotting grid, in dark
-  and light. The Overview opens with a radar of every risky command (blocked
+- The dashboard's Overview opens with a radar of every risky command (blocked
   in the inner ring, asked in the middle, allowed outside; the angle is when
   it ran; select a blip for details) and a plain-words status (Action needed,
   Shields up, All clear) with the next step to take.
