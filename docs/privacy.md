@@ -37,6 +37,7 @@ Nothing is recorded unless `audit_log` is set in your user config.
 | Request typed to the agent | "Delete the test DB [email] asked about" | **Yes, it can.** Personal data in it is masked. | `audit_prompts`, `audit_redact` |
 | Error message of a failed command | `Exit code 1 …` | Sometimes. Personal data in it is masked. | `audit_redact` |
 | Session, prompt and tool-use IDs, subagent name, model, permission mode | `claude-opus-5-5`, `Explore` | Pseudonymous IDs that link entries together. | `audit forget --session` |
+| Which AI agent sent the command | `claude_code`, `codex`, `cursor`, `gemini_cli` | No | — |
 | Skills the agent loaded | `paranoid-sre:paranoid` | No | — |
 | Time of each event | `2026-10-23T09:12:44Z` | Linked to the above. | `audit_retention_days` |
 

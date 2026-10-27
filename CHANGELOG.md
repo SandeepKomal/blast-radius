@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- The dashboard shows every AI agent under its own name, not only Claude
+  Code and Codex, with a **By agent** chart on the Overview and an agent
+  filter on the Activity page.
+- `blast-radius check --agent NAME [--session ID]` records a command as run
+  by any agent, so agents without a built-in hook appear in the dashboard.
+- The Codex hook records the model, and Codex's `SessionStart`,
+  `UserPromptSubmit` and `PostToolUse` events, like Claude Code's.
+
 ### Security
 
 - The release build no longer uses the GitHub Actions cache, so a poisoned

@@ -49,7 +49,7 @@ const PAGE = 50;
 
 const state = {
   entries: [], running: [], status: null, safe: load("safe", "1") === "1",
-  range: load("range", "24h"), filter: "all", tool: "", query: "",
+  range: load("range", "24h"), filter: "all", tool: "", agent: "", query: "",
   shown: PAGE, fresh: null, selected: null, tableView: false,
 };
 
@@ -98,14 +98,23 @@ function riskyEntries() {
 function agentOf(e) {
   if (e.tool === "check") return { name: "blast-radius check", sub: "", model: "", session: "" };
   const ses = idx.sessions.get(e.session_id) || {};
-  const platformNames = { codex: "Codex", claude_code: "Claude Code" };
-  const name = platformNames[e.agent_platform] || "Legacy / Unknown";
   return {
-    name,
+    name: platformName(e.agent_platform),
     sub: e.agent_type || (e.session_id ? "main agent" : ""),
-    model: ses.model || "",
+    model: ses.model || e.model || "",
     session: e.session_id || "",
   };
+}
+// Display names of the agents blast-radius has a hook for. Any other agent
+// (one calling `blast-radius check --agent NAME`) shows under its own name.
+const PLATFORMS = {
+  claude_code: "Claude Code", codex: "Codex", gemini_cli: "Gemini CLI", cursor: "Cursor",
+  copilot: "GitHub Copilot", windsurf: "Windsurf", cline: "Cline", opencode: "OpenCode",
+  aider: "Aider", amazon_q: "Amazon Q", continue: "Continue", roo_code: "Roo Code",
+};
+function platformName(p) {
+  if (!p) return "Legacy / Unknown";
+  return Object.hasOwn(PLATFORMS, p) ? PLATFORMS[p] : p;
 }
 function agentLabel(e) {
   const a = agentOf(e);
@@ -521,7 +530,7 @@ function renderTasks() {
   }));
 }
 
-// Agents: one row per Claude Code session and subagent.
+// Agents: one row per agent session and subagent.
 function renderAgents(list) {
   const groups = new Map();
   for (const e of list) {
@@ -542,7 +551,7 @@ function renderAgents(list) {
     const task = taskOf(g.last);
     return h("li", { onclick: () => openDrawer(g.last), title: "Open the latest command" },
       h("div", { class: "agent-top" },
-        h("span", { class: "avatar", "aria-hidden": "true" }, g.a.sub && g.a.sub !== "main agent" ? g.a.sub[0].toUpperCase() : "C"),
+        h("span", { class: "avatar", "aria-hidden": "true" }, (g.a.sub && g.a.sub !== "main agent" ? g.a.sub : g.a.name)[0].toUpperCase()),
         h("div", { class: "agent-name" },
           h("b", {}, g.a.name), g.a.sub && h("span", { class: "tag" }, g.a.sub),
           (idx.skills.get(g.a.session) || []).some((x) => PARANOID.test(x.skill)) && h("span", { class: "care-badge on small", title: "Used paranoid-sre" }, shield(), "paranoid-sre"),
@@ -630,6 +639,7 @@ function filtered() {
     && (state.safe || risky(e))
     && (state.filter === "all" || e.action === state.filter)
     && (!state.tool || toolsOf(e).includes(state.tool))
+    && (!state.agent || agentOf(e).name === state.agent)
     && (!q || [e.command, e.dir, envOf(e), agentLabel(e), agentOf(e).model, (taskOf(e) || {}).prompt]
       .some((x) => (x || "").toLowerCase().includes(q))));
 }
@@ -673,6 +683,13 @@ function renderTable() {
   if (sel.options.length - 1 !== tools.length) {
     sel.replaceChildren(h("option", { value: "" }, "All tools"), ...tools.map((t) => h("option", { value: t }, t)));
     sel.value = state.tool;
+  }
+  const agents = [...new Set(state.entries.map((e) => agentOf(e).name))].sort();
+  const agentSel = $("agent-filter");
+  agentSel.hidden = agents.length < 2 && !state.agent;
+  if (agentSel.options.length - 1 !== agents.length) {
+    agentSel.replaceChildren(h("option", { value: "" }, "All agents"), ...agents.map((a) => h("option", { value: a }, a)));
+    agentSel.value = state.agent;
   }
 }
 
@@ -878,6 +895,7 @@ function renderAll() {
   renderTimeChart();
   renderMix(list.filter(risky));
   renderBreakdown($("by-env"), list.filter(risky), (e) => [envOf(e) || "unknown"], "No environments yet.");
+  renderBreakdown($("by-agent"), list.filter(risky), (e) => [agentOf(e).name], "No agents yet.");
   renderBreakdown($("by-tool"), list.filter(risky), toolsOf, "No tools yet.");
   renderAgents(list);
   renderCare(list);
@@ -953,6 +971,7 @@ async function start() {
   $("safe").checked = state.safe;
   $("safe").addEventListener("change", (e) => { state.safe = e.target.checked; save("safe", state.safe ? "1" : "0"); state.shown = PAGE; renderTable(); });
   $("tool-filter").addEventListener("change", (e) => { state.tool = e.target.value; renderTable(); });
+  $("agent-filter").addEventListener("change", (e) => { state.agent = e.target.value; renderTable(); });
   $("search").addEventListener("input", (e) => { state.query = e.target.value.trim(); state.shown = PAGE; renderTable(); });
   $("more").addEventListener("click", () => { state.shown += PAGE; renderTable(); });
   $("ts-toggle").addEventListener("click", () => {
