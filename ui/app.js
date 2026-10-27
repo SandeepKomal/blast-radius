@@ -322,6 +322,170 @@ function renderKPIs() {
   }));
 }
 
+// Radar: every risky command in the range is a blip. The angle is when it
+// ran (the range starts and ends at the top, going clockwise), the ring is
+// what blast-radius decided: blocked closest to the centre.
+
+const RADAR_RING = { deny: 32, ask: 56, pass: 80 };
+
+// polar turns a radius and an angle (clockwise from the top) into a point.
+const polar = (r, a) => ({ x: r * Math.sin(a), y: -r * Math.cos(a) });
+
+// spread gives each command a stable offset in [-1, 1), so blips that land
+// on the same spot don't hide each other.
+function spread(str) {
+  let x = 2166136261;
+  for (let i = 0; i < str.length; i++) x = Math.imul(x ^ str.charCodeAt(i), 16777619);
+  return ((x >>> 0) % 2000) / 1000 - 1;
+}
+
+function renderRadar(list) {
+  const bs = buckets(state.range), from = bs[0].start, to = bs[bs.length - 1].end;
+  const svg = s("svg", { viewBox: "-100 -100 200 200", class: "radar-svg" });
+  for (const r of Object.values(RADAR_RING)) svg.append(s("circle", { r, class: "radar-ring" }));
+  svg.append(s("circle", { r: 94, class: "radar-edge" }));
+  for (let i = 0; i < bs.length; i++) {
+    const a = (2 * Math.PI * i) / bs.length, major = i % (bs.length > 12 ? 6 : 1) === 0;
+    const p = polar(major ? 89 : 91.5, a), q = polar(94, a);
+    svg.append(s("line", { x1: p.x, y1: p.y, x2: q.x, y2: q.y, class: major ? "radar-tick major" : "radar-tick" }));
+  }
+  svg.append(s("line", { x1: 0, y1: -94, x2: 0, y2: 94, class: "radar-axis" }), s("line", { x1: -94, y1: 0, x2: 94, y2: 0, class: "radar-axis" }));
+  svg.append(s("text", { x: 0, y: -97, class: "radar-label" }, "Now"));
+  svg.append(s("circle", { r: 7, class: "radar-core" }), s("circle", { r: 2.5, class: "radar-core-dot" }));
+
+  const blips = list.filter((e) => e.action in RADAR_RING);
+  const newest = blips.reduce((m, e) => (!m || e.time > m.time ? e : m), null);
+  for (const e of blips) {
+    const t = new Date(e.time).getTime();
+    const a = (2 * Math.PI * (t - from)) / (to - from) + spread(e.command) * 0.04;
+    const r = RADAR_RING[e.action] + spread(key(e)) * 8;
+    const { x, y } = polar(r, a), size = 0.5 + Math.min(lost(e), 8) * 0.06;
+    const g = s("g", { class: "blip b-" + e.action, tabindex: 0, role: "button", "aria-label": `${OUT[e.action].label}: ${e.command}, ${ago(e.time)}`,
+      transform: `translate(${x.toFixed(2)} ${y.toFixed(2)})`,
+      onclick: () => openDrawer(e),
+      onkeydown: (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); openDrawer(e); } },
+      onmouseenter: (ev) => tip.note(ev, OUT[e.action].label + " · " + agentLabel(e) + " · " + ago(e.time), e.command),
+      onmousemove: (ev) => tip.place(ev.clientX, ev.clientY),
+      onmouseleave: () => tip.hide() });
+    if (e === newest) g.append(s("circle", { r: 7, class: "blip-new" }));
+    g.append(s("path", { d: OUT[e.action].icon, class: "f-" + e.action, transform: `scale(${size.toFixed(2)}) translate(-8 -8)` }));
+    svg.append(g);
+  }
+  const n = (id) => blips.filter((e) => e.action === id).length;
+  $("radar").setAttribute("role", "group");
+  $("radar").setAttribute("aria-label", `Radar of the ${RANGES[state.range].label}: ${n("deny")} blocked, ${n("ask")} asked, ${n("pass")} allowed. Select a blip for details.`);
+  $("radar").replaceChildren(svg);
+}
+
+// Status: what needs you, in plain words, next to the radar.
+
+let pickFilter = () => {};
+const goto = (view) => { location.hash = view; };
+const showActivity = (filter) => { goto("activity"); pickFilter(filter); };
+const waitingEntries = () => state.entries.filter((e) => e.action === "ask" && (nextOf(e) || {}).id === "waiting");
+
+function renderStatus(list) {
+  const flagged = list.filter(risky);
+  const waiting = waitingEntries();
+  const blocked = flagged.filter((e) => e.action === "deny");
+  const kept = blocked.reduce((n, e) => n + lost(e), 0);
+  const period = "the " + RANGES[state.range].label;
+  const plural = (n, one, many) => fmt.format(n) + " " + (n === 1 ? one : many);
+  const go = (label, onclick, primary) => h("button", { type: "button", class: primary ? "btn" : "ghost", onclick }, label);
+
+  let tone, kicker, word, text, actions;
+  if (state.status && !state.status.log_enabled) {
+    [tone, kicker, word] = ["ask", "Not recording", "Recording off"];
+    text = "blast-radius still checks every command, but this dashboard only shows what the activity log records.";
+    actions = [go("Turn on the activity log", () => goto("setup"), true)];
+  } else if (waiting.length) {
+    [tone, kicker, word] = ["ask", "Your agent is waiting", "Action needed"];
+    text = plural(waiting.length, "command needs", "commands need") + " your answer in the agent. Check what " + (waiting.length === 1 ? "it" : "each") + " would delete before you approve.";
+    actions = [go("Review " + (waiting.length === 1 ? "it" : "the oldest"), () => openDrawer(waiting[waiting.length - 1]), true), go("Everything asked", () => showActivity("ask"))];
+  } else if (blocked.length) {
+    [tone, kicker, word] = ["deny", "Protected", "Shields up"];
+    text = "blast-radius stopped " + plural(blocked.length, "command", "commands") + " in " + period + (kept ? ", which would have deleted " + plural(kept, "resource", "resources") : "") + ".";
+    actions = [go("See what was blocked", () => showActivity("deny"), true)];
+  } else if (flagged.length) {
+    [tone, kicker, word] = ["pass", "Watching", "All clear"];
+    text = plural(flagged.length, "risky command", "risky commands") + " in " + period + ", none blocked. Each one was allowed by your rules or approved by you.";
+    actions = [go("Open activity", () => showActivity("all"), true)];
+  } else {
+    [tone, kicker, word] = ["idle", "Watching", "Standing by"];
+    text = "No risky commands in " + period + ". Every shell command your agents run is checked before it runs.";
+    actions = state.entries.length ? [] : [go("Finish setup", () => goto("setup"), true)];
+  }
+  $("status").dataset.tone = tone;
+  $("status-kicker").textContent = kicker;
+  $("status-word").textContent = word;
+  $("status-text").textContent = text;
+  $("status-actions").replaceChildren(...actions);
+
+  const agents = [...new Set(list.filter((e) => e.tool !== "check").map((e) => agentOf(e).name))];
+  const envs = new Set(flagged.map(envOf).filter(Boolean));
+  const last = state.entries[0];
+  const stat = (label, value, title) => [h("dt", {}, label), h("dd", { title: title || "" }, value)];
+  $("status-grid").replaceChildren(
+    ...stat("Agents", fmt.format(agents.length), agents.join(", ")),
+    ...stat("Environments", fmt.format(envs.size), [...envs].join(", ")),
+    ...stat("Checking now", fmt.format(state.running.length)),
+    ...stat("Last check", last ? h("span", { "data-ago": last.time }, ago(last.time)) : "–"));
+}
+
+// Command palette: Ctrl+K or ⌘K to jump to a page or find any command.
+
+const palette = { items: [], active: 0, opener: null };
+
+function paletteItems(q) {
+  const pages = Object.entries(VIEWS).map(([id, [title, sub]]) => ({ kind: "Page", title, sub, run: () => goto(id) }));
+  const actions = [["deny", "Blocked commands"], ["ask", "Commands that asked you"], ["pass", "Allowed commands"]]
+    .map(([filter, title]) => ({ kind: "Show", title, run: () => showActivity(filter) }));
+  const needle = q.toLowerCase();
+  const match = (...xs) => !needle || xs.some((x) => (x || "").toLowerCase().includes(needle));
+  const cmds = state.entries.filter((e) => match(e.command, e.dir, envOf(e), agentLabel(e))).slice(0, needle ? 12 : 5)
+    .map((e) => ({ kind: OUT[e.action] ? OUT[e.action].label : "Checked", outcome: e.action, title: e.command, sub: [agentLabel(e), envOf(e), ago(e.time)].filter(Boolean).join(" · "), mono: true, run: () => openDrawer(e) }));
+  return [...pages.filter((p) => match(p.title, p.sub)), ...actions.filter((a) => match(a.title)), ...cmds];
+}
+
+function renderPalette() {
+  const list = $("palette-list");
+  palette.active = Math.min(palette.active, Math.max(0, palette.items.length - 1));
+  if (!palette.items.length) {
+    list.replaceChildren(h("li", { class: "palette-empty" }, "Nothing matches. Try part of a command, a folder or an agent's name."));
+    $("palette-q").removeAttribute("aria-activedescendant");
+    return;
+  }
+  list.replaceChildren(...palette.items.map((it, i) => h("li", {
+    id: "pal-" + i, role: "option", "aria-selected": i === palette.active, class: "palette-item",
+    onmousemove: () => { if (palette.active !== i) { palette.active = i; renderPalette(); } },
+    onclick: () => choosePalette(i),
+  },
+  h("span", { class: "palette-kind" }, it.outcome && OUT[it.outcome] ? icon(it.outcome) : null, it.kind),
+  h("span", { class: "palette-text" }, h("b", { class: it.mono ? "mono" : "" }, it.title), it.sub && h("small", {}, it.sub)))));
+  $("palette-q").setAttribute("aria-activedescendant", "pal-" + palette.active);
+  const el = $("pal-" + palette.active);
+  if (el) el.scrollIntoView({ block: "nearest" });
+}
+
+function openPalette() {
+  palette.opener = document.activeElement;
+  $("palette").hidden = false;
+  $("palette-q").value = "";
+  palette.items = paletteItems("");
+  palette.active = 0;
+  renderPalette();
+  $("palette-q").focus();
+}
+function closePalette() {
+  $("palette").hidden = true;
+  if (palette.opener && palette.opener.focus) palette.opener.focus();
+}
+function choosePalette(i) {
+  const it = palette.items[i];
+  closePalette();
+  if (it) it.run();
+}
+
 // Decisions over time: stacked columns.
 
 const tip = {
@@ -331,12 +495,22 @@ const tip = {
       ...rows.map((r) => h("div", { class: "tt-row" }, h("span", { class: "key k-" + r.id }), r.label, h("b", {}, fmt.format(r.value)))),
       totalLabel != null ? h("div", { class: "tt-total" }, h("span", {}, "Total"), h("span", {}, fmt.format(totalLabel))) : null);
     t.hidden = false;
-    const r = t.getBoundingClientRect();
-    let x = ev.clientX + 14, y = ev.clientY + 14;
-    if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - 14;
-    if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - 14;
-    t.style.left = x + "px";
-    t.style.top = y + "px";
+    this.place(ev.clientX, ev.clientY);
+  },
+  // note shows a heading and one line of text, such as a command.
+  note(ev, title, text) {
+    const t = $("tooltip");
+    t.replaceChildren(h("h4", {}, title), h("div", { class: "mono" }, text));
+    t.hidden = false;
+    this.place(ev.clientX, ev.clientY);
+  },
+  place(cx, cy) {
+    const t = $("tooltip"), r = t.getBoundingClientRect();
+    let x = cx + 14, y = cy + 14;
+    if (x + r.width > innerWidth - 8) x = cx - r.width - 14;
+    if (y + r.height > innerHeight - 8) y = cy - r.height - 14;
+    t.style.left = Math.max(8, x) + "px";
+    t.style.top = Math.max(8, y) + "px";
   },
   hide() { $("tooltip").hidden = true; },
 };
@@ -595,7 +769,7 @@ function renderBreakdown(el, list, by, emptyText) {
 
 function renderRunning() {
   const r = state.running;
-  const waiting = state.entries.filter((e) => e.action === "ask" && (nextOf(e) || {}).id === "waiting");
+  const waiting = waitingEntries();
   const n = r.length + waiting.length;
   $("run-badge").textContent = n;
   $("run-badge").classList.toggle("active", n > 0);
@@ -893,6 +1067,8 @@ function route() {
 function renderAll() {
   const list = state.entries.filter(inRange);
   $("nav-count").textContent = list.length ? fmt.format(list.length) : "";
+  renderRadar(list.filter(risky));
+  renderStatus(list);
   renderKPIs();
   renderTimeChart();
   renderMix(list.filter(risky));
@@ -922,6 +1098,7 @@ async function loadStatus() {
   $("log-banner").hidden = st.log_enabled;
   renderSetup(st);
   renderRules(st);
+  renderStatus(state.entries.filter(inRange));
 }
 
 function setLive(st, text) {
@@ -944,6 +1121,7 @@ function connect() {
   es.addEventListener("running", (ev) => {
     state.running = JSON.parse(ev.data);
     renderRunning();
+    renderStatus(state.entries.filter(inRange));
   });
   es.addEventListener("error", () => setLive("off", "Reconnecting"));
 }
@@ -970,6 +1148,7 @@ async function start() {
     state.shown = PAGE;
     renderTable();
   });
+  pickFilter = setFilter;
   $("safe").checked = state.safe;
   $("safe").addEventListener("change", (e) => { state.safe = e.target.checked; save("safe", state.safe ? "1" : "0"); state.shown = PAGE; renderTable(); });
   $("tool-filter").addEventListener("change", (e) => { state.tool = e.target.value; renderTable(); });
@@ -985,7 +1164,25 @@ async function start() {
   for (const a of document.querySelectorAll("[data-goto-filter]")) a.addEventListener("click", () => setFilter(a.dataset.gotoFilter));
   $("drawer-close").addEventListener("click", closeDrawer);
   $("scrim").addEventListener("click", closeDrawer);
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("drawer").classList.contains("open")) closeDrawer(); });
+  document.addEventListener("keydown", (e) => {
+    const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") || (e.key === "/" && !typing && $("palette").hidden)) {
+      e.preventDefault();
+      if ($("palette").hidden) openPalette(); else closePalette();
+    } else if (e.key === "Escape" && !$("palette").hidden) closePalette();
+    else if (e.key === "Escape" && $("drawer").classList.contains("open")) closeDrawer();
+  });
+  $("palette-kbd").textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K";
+  $("palette-open").addEventListener("click", openPalette);
+  $("palette").addEventListener("mousedown", (e) => { if (e.target === $("palette")) closePalette(); });
+  $("palette-q").addEventListener("input", (e) => { palette.items = paletteItems(e.target.value.trim()); palette.active = 0; renderPalette(); });
+  $("palette-q").addEventListener("keydown", (e) => {
+    const n = palette.items.length;
+    if (e.key === "ArrowDown" && n) { e.preventDefault(); palette.active = (palette.active + 1) % n; renderPalette(); }
+    else if (e.key === "ArrowUp" && n) { e.preventDefault(); palette.active = (palette.active - 1 + n) % n; renderPalette(); }
+    else if (e.key === "Enter") { e.preventDefault(); choosePalette(palette.active); }
+    else if (e.key === "Tab") e.preventDefault();
+  });
   for (const el of document.querySelectorAll("[data-copy]")) el.replaceWith(codeBlock(el.textContent.trim()));
   window.addEventListener("hashchange", route);
   new ResizeObserver(() => { if (!$("view-overview").hidden) renderTimeChart(); }).observe($("ts-chart"));
@@ -1006,6 +1203,7 @@ async function start() {
   setInterval(() => {
     for (const t of document.querySelectorAll("[data-ago]")) t.textContent = ago(t.dataset.ago);
     renderRunning();
+    renderStatus(state.entries.filter(inRange));
   }, 15000);
   setInterval(() => loadStatus().catch(() => {}), 10000);
 }

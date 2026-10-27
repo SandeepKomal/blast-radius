@@ -65,8 +65,10 @@ flowchart LR
 
 Screenshots use sample data. Click any image for full resolution.
 
-**Overview**: risky commands, decisions over time, how carefully the agent worked (paranoid-sre),
-which agents and models ran commands, and what is waiting for you right now.
+**Overview**: a radar of every risky command (blocked in the inner ring, asked in the middle,
+allowed outside; the angle is when it ran) next to a plain-words status and what to do next. Below
+it: decisions over time, how carefully the agent worked (paranoid-sre), which agents and models
+ran commands, and what is waiting for you right now.
 
 [![Overview](docs/screenshots/overview.png)](docs/screenshots/overview.png)
 
@@ -92,6 +94,11 @@ model and session, and exactly what it would have deleted.
 keeps, for how long, and how to erase it.
 
 [![Rules and privacy](docs/screenshots/rules-privacy.png)](docs/screenshots/rules-privacy.png)
+
+**Search and jump**: press <kbd>Ctrl</kbd>+<kbd>K</kbd> (<kbd>⌘</kbd>+<kbd>K</kbd> on a Mac) or
+<kbd>/</kbd> to jump to a page or find any command by its text, agent or environment.
+
+[![Search and jump](docs/screenshots/palette.png)](docs/screenshots/palette.png)
 
 <table>
 <tr>
@@ -257,7 +264,7 @@ Or ask Claude to "tear down the demo infrastructure" and watch it appear in the 
 
 | Page | What it answers |
 | --- | --- |
-| **Overview** | How many risky commands ran, how many were blocked or asked about, how many resources were kept safe, whether paranoid-sre was used, which agents did what, and what is waiting for you right now. The range switch shows 24 hours, 7 days or 30 days. |
+| **Overview** | What needs you right now, and a radar of every risky command: select a blip for its details. How many risky commands ran, how many were blocked or asked about, how many resources were kept safe, whether paranoid-sre was used, which agents did what, and what is waiting for you right now. The range switch shows 24 hours, 7 days or 30 days. |
 | **Activity** | Every command, filterable by result, tool and text. Select one for details. |
 | **Tasks** | Each request you gave Claude, as a story from your words to the result. |
 | **Setup** | The install steps above, with live status. |
