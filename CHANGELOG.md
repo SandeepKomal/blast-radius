@@ -41,6 +41,9 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- A config file with anything after its closing `}`, such as rules pasted
+  below it, is now an error. Before, everything after the first `}` was
+  ignored without a warning, so those rules silently didn't apply.
 - Claude Code's session, request and result records had no
   `agent_platform`, unlike every other agent's.
 - Codex hooks did nothing until trusted in Codex's `/hooks`, and Codex

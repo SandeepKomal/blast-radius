@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -182,7 +183,8 @@ func findProjectFile(dir string) (string, []byte, error) {
 }
 
 // Parse reads a config file. Rules it leaves out come from base. Unknown
-// keys are an error, so a typo can't silently weaken the policy.
+// keys and anything after the closing brace are errors, so a typo or a
+// misplaced rule can't silently weaken the policy.
 func Parse(b []byte, base Config) (Config, error) {
 	cfg := Config{Default: base.Default, PreviewTimeoutSeconds: base.PreviewTimeoutSeconds, Aliases: map[string]string{}}
 	for k, v := range base.Aliases {
@@ -193,6 +195,11 @@ func Parse(b []byte, base Config) (Config, error) {
 	var raw Config
 	if err := dec.Decode(&raw); err != nil {
 		return base, err
+	}
+	// Decode stops after the first value, so rules pasted after its closing
+	// brace would otherwise be ignored without a word.
+	if _, err := dec.Token(); err != io.EOF {
+		return base, errors.New("unexpected content after the closing } of the config")
 	}
 	if err := raw.Default.validate(); err != nil {
 		return base, fmt.Errorf("default: %w", err)
