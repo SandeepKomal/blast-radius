@@ -10,7 +10,8 @@ of these files:
 
 `blast-radius init --user` and `blast-radius init` write starter files.
 `blast-radius config` prints the policy in effect and which files it came
-from. Unknown keys are an error, so a typo can't quietly weaken the policy.
+from. Unknown keys are an error, and so is anything after the closing `}`, so a
+typo or a rule pasted in the wrong place can't quietly weaken the policy.
 
 Why can't a project file loosen rules? The agent can write files in the
 repository it works in. If a `.blast-radius.json` could set `destroy` to
