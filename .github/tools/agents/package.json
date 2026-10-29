@@ -1,0 +1,11 @@
+{
+  "name": "blast-radius-e2e-agents",
+  "private": true,
+  "description": "The agent CLIs the end-to-end tests run; pinned with package-lock.json",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.312",
+    "@github/copilot": "1.0.104",
+    "@google/gemini-cli": "0.65.0",
+    "@openai/codex": "0.164.0"
+  }
+}

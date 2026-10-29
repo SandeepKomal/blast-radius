@@ -83,13 +83,12 @@ func hookClaude(stdin io.Reader, stdout, stderr io.Writer, run analyze.Runner) (
 	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
 		return writeDecision(stdout, policy.Ask, "blast-radius could not read the hook input ("+err.Error()+"). Review this action yourself before approving.")
 	}
+	in.AgentPlatform = "claude_code"
 	if recorded(in.HookEventName) {
 		recordEvent(in, stderr)
 		return 0
 	}
-	agent := in.agentInfo
-	agent.AgentPlatform = "claude_code"
-	req := request{tool: in.ToolName, dir: in.Cwd, agent: agent}
+	req := request{tool: in.ToolName, dir: in.Cwd, agent: in.agentInfo}
 	if req.dir == "" {
 		req.dir, _ = os.Getwd()
 	}

@@ -1,8 +1,0 @@
-{
-  "name": "blast-radius-e2e-codex",
-  "private": true,
-  "description": "Codex CLI for the end-to-end tests; pinned with package-lock.json",
-  "dependencies": {
-    "@openai/codex": "0.164.0"
-  }
-}

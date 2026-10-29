@@ -118,12 +118,19 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - name: Install Codex CLI
-        # The Codex tests check its hook protocol. npm ci installs exactly
-        # what .github/tools/codex/package-lock.json records, hashes included.
+      - name: Install the agent CLIs
+        # The agent tests run each agent's real CLI against a mock model. npm ci
+        # installs exactly what .github/tools/agents/package-lock.json records,
+        # hashes included.
         run: |
-          npm ci --prefix .github/tools/codex --no-audit --no-fund
-          echo "BLAST_RADIUS_E2E_CODEX=$GITHUB_WORKSPACE/.github/tools/codex/node_modules/.bin/codex" >> "$GITHUB_ENV"
+          npm ci --prefix .github/tools/agents --no-audit --no-fund
+          bin="$GITHUB_WORKSPACE/.github/tools/agents/node_modules/.bin"
+          {
+            echo "BLAST_RADIUS_E2E_CLAUDE=$bin/claude"
+            echo "BLAST_RADIUS_E2E_CODEX=$bin/codex"
+            echo "BLAST_RADIUS_E2E_GEMINI=$bin/gemini"
+            echo "BLAST_RADIUS_E2E_COPILOT=$bin/copilot"
+          } >> "$GITHUB_ENV"
       - name: Tool versions
         run: |
           terraform version
@@ -133,7 +140,7 @@ jobs:
           pulumi version
           gcloud version | head -1
           kubectl version --client
-          "$BLAST_RADIUS_E2E_CODEX" --version
+          for agent in "$BLAST_RADIUS_E2E_CLAUDE" "$BLAST_RADIUS_E2E_CODEX" "$BLAST_RADIUS_E2E_GEMINI" "$BLAST_RADIUS_E2E_COPILOT"; do "$agent" --version; done
       - name: End-to-end tests
         env:
           BLAST_RADIUS_E2E_KUBE: "1"
