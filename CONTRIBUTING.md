@@ -19,6 +19,22 @@ The Kubernetes end-to-end tests run against whatever cluster is in your
 KUBECONFIG (kind, minikube, k3d) when `BLAST_RADIUS_E2E_KUBE=1` is set. They
 work on a copy of the kubeconfig and only touch a namespace called `br-e2e`.
 
+The agent tests run each supported agent's real CLI, with the hooks
+`blast-radius install` writes, against a mock model on localhost: no account,
+key or network is needed. Install the pinned CLIs and point the tests at them:
+
+```bash
+npm ci --prefix .github/tools/agents
+bin=.github/tools/agents/node_modules/.bin
+BLAST_RADIUS_E2E_CLAUDE=$bin/claude BLAST_RADIUS_E2E_CODEX=$bin/codex \
+BLAST_RADIUS_E2E_GEMINI=$bin/gemini BLAST_RADIUS_E2E_COPILOT=$bin/copilot make e2e
+```
+
+For each agent they check that a harmless command runs, a destroy needs
+review, production is blocked, the agent can't remove its own hook, and the
+activity log names the agent. `TestOtherAgents` covers agents that call
+`blast-radius check --agent` from their own hooks.
+
 ## Guidelines
 
 - **Standard library only.** blast-radius runs on every command an agent

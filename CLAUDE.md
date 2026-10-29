@@ -15,8 +15,8 @@ makes the agent careful before it reaches the hook.
 ```bash
 make test        # go test -race ./...
 make lint        # golangci-lint, including the e2e build tag
-make e2e         # needs terraform or tofu; kubectl tests need BLAST_RADIUS_E2E_KUBE=1,
-                 # Codex tests BLAST_RADIUS_E2E_CODEX=<path to codex>
+make e2e         # needs terraform or tofu; kubectl tests need BLAST_RADIUS_E2E_KUBE=1;
+                 # agent tests need BLAST_RADIUS_E2E_{CLAUDE,CODEX,GEMINI,COPILOT}=<cli>
 make fuzz        # fuzz the shell parser
 go build -o blast-radius . && ./blast-radius ui   # run the dashboard
 ```
