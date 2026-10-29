@@ -116,6 +116,9 @@ func TestParseRejectsBadConfig(t *testing.T) {
 		`{"environments": [{"name": "x", "match": []}]}`,
 		`{"preview_timeout_seconds": 9999}`,
 		`not json`,
+		`{"audit_log": "x"}` + "\n" + `"environments": [{"name": "qa", "match": ["qa"], "destroy": "deny"}]`,
+		`{} {}`,
+		`{}}`,
 	} {
 		if _, err := Parse([]byte(bad), Default()); err == nil {
 			t.Errorf("%s: want error", bad)
