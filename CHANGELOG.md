@@ -32,13 +32,17 @@ All notable changes to this project are documented here. The format follows
 - Hooks for Gemini CLI (`hook gemini`) and GitHub Copilot CLI
   (`hook copilot`), checking shell commands and file edits.
 - The Codex hook checks `apply_patch` file edits.
-- End-to-end tests run the real Codex CLI against a mock model.
+- End-to-end tests run the real Claude Code, Codex, Gemini CLI and Copilot
+  CLI, with the hooks `install` writes, against a mock model, and check
+  `check --agent` for agents without a built-in hook.
 - The Setup page finds paranoid-sre in the skill folders of Codex, Gemini
   CLI and Copilot CLI (`~/.agents/skills` and each agent's own), not only
   Claude Code's.
 
 ### Fixed
 
+- Claude Code's session, request and result records had no
+  `agent_platform`, unlike every other agent's.
 - Codex hooks did nothing until trusted in Codex's `/hooks`, and Codex
   skipped them without a warning. `install --agent codex` and `doctor` now
   say so, and the README explains it.
@@ -47,7 +51,7 @@ All notable changes to this project are documented here. The format follows
 
 ### Security
 
-- The browser tests and the Codex CLI used by the end-to-end tests are
+- The browser tests and the agent CLIs used by the end-to-end tests are
   installed with `npm ci` from committed lockfiles, so they are pinned by
   hash, and Dependabot updates them (OpenSSF Scorecard Pinned-Dependencies).
 

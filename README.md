@@ -476,7 +476,8 @@ itself. Every item below is checked automatically on every pull request or relea
       default and don't keep credentials in the checkout; downloaded tools are verified against
       their published SHA-256 checksums.
 - [x] Tests run on Linux, macOS and Windows with the race detector, plus fuzzing of the shell
-      parser and end-to-end tests against real Terraform, OpenTofu, Helm, Pulumi and Kubernetes.
+      parser and end-to-end tests against real Terraform, OpenTofu, Helm, Pulumi and Kubernetes,
+      and against the real Claude Code, Codex, Gemini CLI and Copilot CLI with a mock model.
 - [x] Release archives come with checksums and **signed build provenance**:
 
 ```bash
