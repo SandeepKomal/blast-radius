@@ -1,4 +1,5 @@
 /blast-radius
+/blast-radius.exe
 /dist/
 examples/demo/.terraform/
 examples/demo/.terraform.lock.hcl
