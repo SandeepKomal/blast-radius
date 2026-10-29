@@ -54,7 +54,6 @@ All notable changes to this project are documented here. The format follows
 - The browser tests and the agent CLIs used by the end-to-end tests are
   installed with `npm ci` from committed lockfiles, so they are pinned by
   hash, and Dependabot updates them (OpenSSF Scorecard Pinned-Dependencies).
-
 - Self-protection covers every supported agent: commands and file edits
   that change Codex, Gemini CLI or Copilot hook settings need approval.
 - Self-protection could be bypassed with a path written differently:
@@ -62,9 +61,6 @@ All notable changes to this project are documented here. The format follows
   `cd`, a trailing dot on Windows, or removing the whole folder. Paths are
   now normalised and resolved against the command's directory, and folders
   holding a hook count as the hook.
-
-### Security
-
 - The release build no longer uses the GitHub Actions cache, so a poisoned
   cache can't reach a release binary (zizmor cache-poisoning).
 - `blast-radius init --user` creates the user config readable only by its
