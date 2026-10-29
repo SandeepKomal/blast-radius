@@ -100,6 +100,7 @@ func TestRecordedEvents(t *testing.T) {
 		{"kind": "skill", "skill": "paranoid-sre:paranoid", "agent_type": "Explore"},
 	}
 	for i, w := range want {
+		w["agent_platform"] = "claude_code"
 		for k, v := range w {
 			if got[i][k] != v {
 				t.Errorf("line %d: %s = %v, want %v", i, k, got[i][k], v)
